@@ -1,0 +1,24 @@
+[package]
+name = "termtools"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "midimon"
+path = "src/apps/midimon/main.rs"
+
+[[bin]]
+name = "zelink"
+path = "src/apps/zelink/main.rs"
+
+[dependencies]
+anyhow = "1.0.75"
+crossbeam = { version = "0.8.2", features = ["crossbeam-channel"] }
+crossterm = "0.27.0"
+ratatui = "0.23.0"
+rusty_link = "0.3.6"
+midir = "0.9.1"
+midly = "0.5.3"
+
+[profile.release]
+lto = "fat"
