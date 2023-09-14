@@ -1,25 +1,25 @@
-pub struct AppState {
+use crossterm::event::KeyCode;
+
+pub struct App {
+    pub show_usage: bool,
+
     link: rusty_link::AblLink,
     session_state: rusty_link::SessionState,
     quantum: f64,
 }
 
-impl AppState {
-    pub fn new() -> Self {
+impl Default for App {
+    fn default() -> Self {
         Self {
+            show_usage: false,
             link: rusty_link::AblLink::new(120.),
             session_state: rusty_link::SessionState::new(),
             quantum: 4.,
         }
     }
+}
 
-    pub fn with_on_state() -> Self {
-        let mut this = Self::new();
-        this.enable_start_stop_sync(!this.is_start_stop_sync_enabled());
-        this.enable(!this.is_enabled());
-        this
-    }
-
+impl App {
     pub fn capture_session_state(&mut self) {
         self.link.capture_app_session_state(&mut self.session_state);
     }
@@ -28,17 +28,9 @@ impl AppState {
         self.link.commit_app_session_state(&self.session_state);
     }
 
-    pub fn on_tick(&mut self) {
-        self.capture_session_state();
-    }
-
     pub fn time(&self) -> i64 {
         self.link.clock_micros()
     }
-
-    // pub fn phase(&self) -> f64 {
-    //     self.session_state.phase_at_time(self.time(), self.quantum)
-    // }
 
     pub fn is_start_stop_sync_enabled(&self) -> bool {
         self.link.is_start_stop_sync_enabled()
@@ -100,5 +92,51 @@ impl AppState {
                 self.quantum(),
             );
         }
+    }
+}
+
+impl crate::app::Base for App {
+    fn setup(&mut self) -> anyhow::Result<()> {
+        self.enable_start_stop_sync(!self.is_start_stop_sync_enabled());
+        self.enable(!self.is_enabled());
+        Ok(())
+    }
+
+    fn update(&mut self) -> anyhow::Result<crate::app::Flow> {
+        self.capture_session_state();
+        Ok(crate::app::Flow::Continue)
+    }
+
+    fn handle_key(&mut self, key: crossterm::event::KeyEvent) -> anyhow::Result<crate::app::Flow> {
+        match key.code {
+            KeyCode::Char('?') => self.show_usage = !self.show_usage,
+            KeyCode::Char('q') | KeyCode::Esc => {
+                if self.show_usage {
+                    self.show_usage = false
+                } else {
+                    self.stop();
+                    return Ok(crate::app::Flow::Exit);
+                }
+            }
+            KeyCode::Char('a') => self.enable(!self.is_enabled()),
+            KeyCode::Char('k') => {
+                self.set_session_tempo(self.tempo() + 1.0);
+                self.commit_session_state();
+            }
+            KeyCode::Char('j') => {
+                self.set_session_tempo(self.tempo() - 1.0);
+                self.commit_session_state();
+            }
+            KeyCode::Char('l') => self.set_quantum(self.quantum() + 1.),
+            KeyCode::Char('h') => self.set_quantum(self.quantum() - 1.),
+            KeyCode::Char('s') => self.enable_start_stop_sync(!self.is_start_stop_sync_enabled()),
+            KeyCode::Char(' ') => {
+                self.toggle_session_is_playing();
+                self.commit_session_state();
+            }
+            _ => (),
+        }
+
+        Ok(crate::app::Flow::Continue)
     }
 }

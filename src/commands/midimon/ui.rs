@@ -1,21 +1,28 @@
 use ratatui::{
     prelude::*,
     widgets::{Block, Borders, List, ListItem},
-    Frame,
 };
 
-pub fn render<B: Backend>(frame: &mut Frame<B>, state: &mut crate::State) {
+const USAGE: &str = r#"
+         ? : display help
+   <SPACE> : pause / resume
+   <UP>, k : scroll up
+ <DOWN>, j : scroll down
+     Enter : confirm selection
+  <ESC>, q : quit or hide help
+     <C-c> : force quit
+"#;
+
+pub fn render<B: Backend>(f: &mut Frame<B>, app: &mut super::app::App) {
     let sections = Layout::default()
         .direction(Direction::Vertical)
         .margin(1)
         .constraints([Constraint::Min(3), Constraint::Percentage(80)].as_ref())
-        .split(frame.size());
+        .split(f.size());
 
-    state
-        .port_names
-        .render_selector(frame, sections[0], "˧ ports ꜔");
+    app.port_names.render_selector(f, sections[0], "˧ ports ꜔");
 
-    let message_list: Vec<ListItem> = state
+    let message_list: Vec<ListItem> = app
         .messages
         .iter()
         .rev()
@@ -37,7 +44,7 @@ pub fn render<B: Backend>(frame: &mut Frame<B>, state: &mut crate::State) {
         })
         .collect();
 
-    let selected_port_name = match state.selection.clone() {
+    let selected_port_name = match app.selection.clone() {
         Some(name) => format!("˧ {name} ꜔"),
         None => "".to_owned(),
     };
@@ -54,5 +61,9 @@ pub fn render<B: Backend>(frame: &mut Frame<B>, state: &mut crate::State) {
                 )),
         );
 
-    frame.render_widget(message_view, sections[1]);
+    f.render_widget(message_view, sections[1]);
+
+    if app.show_usage {
+        crate::widgets::usage::render(f, USAGE);
+    }
 }

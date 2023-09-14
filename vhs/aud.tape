@@ -1,21 +1,11 @@
-Output res/midimon.gif
+Output res/aud.gif
 
 Set FontSize 24
 Set FontFamily "JetBrains Mono"
 Set Width 1200
 Set Height 800
 
-Type "aud midimon"
+Type "aud"
 Sleep 500ms
-
-Enter
-Sleep 250ms
-
-Type "?"
-Sleep 2s
-Type "q"
-
 Enter
 Sleep 3s
-
-Type "q"

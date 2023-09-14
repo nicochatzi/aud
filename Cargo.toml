@@ -1,15 +1,7 @@
 [package]
-name = "termtools"
+name = "aud"
 version = "0.1.0"
 edition = "2021"
-
-[[bin]]
-name = "midimon"
-path = "src/apps/midimon/main.rs"
-
-[[bin]]
-name = "zelink"
-path = "src/apps/zelink/main.rs"
 
 [dependencies]
 anyhow = "1.0.75"
@@ -19,6 +11,8 @@ ratatui = "0.23.0"
 rusty_link = "0.3.6"
 midir = "0.9.1"
 midly = "0.5.3"
+cpal = "0.15.2"
+clap = { version = "4.4.3", features = ["derive"] }
 
 [profile.release]
 lto = "fat"

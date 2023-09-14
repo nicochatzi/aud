@@ -1,33 +1,27 @@
-mod midi;
-mod ui;
-
-pub use midi::*;
-
+use crate::midi::*;
+use crate::widgets::StatefulList;
 use crossbeam::channel::{Receiver, Sender};
-use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers};
+use crossterm::event::KeyCode;
 use midir::MidiInputPorts;
-use ratatui::prelude::*;
-use std::time::{Duration, Instant};
-use termtools::StatefulList;
 
-const TICK_RATE: Duration = Duration::from_millis(33);
 const MAX_NUM_MESSAGES_ON_SCREEN: usize = 64;
 
-pub struct State {
+pub struct App {
     pub selection: Option<String>,
     pub port_names: StatefulList<String>,
     pub messages: Vec<MidiMessageString>,
+    pub is_running: bool,
+    pub show_usage: bool,
+
     sender: Sender<MidiMessageString>,
     receiver: Receiver<MidiMessageString>,
     midi_in_connection: Option<midir::MidiInputConnection<Sender<MidiMessageString>>>,
     input_ports: MidiInputPorts,
-    is_running: bool,
 }
 
-impl State {
-    fn new() -> Self {
+impl Default for App {
+    fn default() -> Self {
         let (sender, receiver) = crossbeam::channel::bounded(1_000);
-
         Self {
             selection: None,
             sender,
@@ -37,10 +31,13 @@ impl State {
             input_ports: vec![],
             messages: vec![],
             is_running: true,
+            show_usage: false,
         }
     }
+}
 
-    fn update_ports(&mut self) -> anyhow::Result<()> {
+impl App {
+    pub fn update_ports(&mut self) -> anyhow::Result<()> {
         let midi_in = midir::MidiInput::new("midir reading input")?;
         self.input_ports = midi_in.ports();
         let mut input_port_names = Vec::with_capacity(self.input_ports.len());
@@ -55,7 +52,7 @@ impl State {
         Ok(())
     }
 
-    fn connect(&mut self) -> anyhow::Result<()> {
+    pub fn connect(&mut self) -> anyhow::Result<()> {
         let Some(index) = self.port_names.selected() else {
             return Ok(());
         };
@@ -86,7 +83,7 @@ impl State {
         Ok(())
     }
 
-    fn collect(&mut self) {
+    pub fn collect(&mut self) {
         let mut new_messages: Vec<_> = self.receiver.try_iter().collect();
         if self.messages.len() > MAX_NUM_MESSAGES_ON_SCREEN {
             self.messages = self
@@ -97,59 +94,48 @@ impl State {
     }
 }
 
-fn run<B: Backend>(terminal: &mut Terminal<B>) -> anyhow::Result<()> {
-    terminal.clear()?;
-
-    let mut state = State::new();
-    state.update_ports()?;
-
-    let mut last_tick = Instant::now();
-
-    loop {
-        terminal.draw(|f| ui::render(f, &mut state))?;
-
-        let timeout = TICK_RATE
-            .checked_sub(last_tick.elapsed())
-            .unwrap_or_else(|| Duration::from_secs(0));
-
-        if crossterm::event::poll(timeout)? {
-            if let Event::Key(key) = crossterm::event::read()? {
-                if key.kind == KeyEventKind::Press {
-                    match key.code {
-                        KeyCode::Char('q') | KeyCode::Esc => break,
-                        KeyCode::Char('c') if matches!(key.modifiers, KeyModifiers::CONTROL) => {
-                            break
-                        }
-                        KeyCode::Char('c') => state.messages.clear(),
-                        KeyCode::Char(' ') => state.is_running = !state.is_running,
-                        KeyCode::Down | KeyCode::Char('j') => state.port_names.next(),
-                        KeyCode::Up | KeyCode::Char('k') => state.port_names.previous(),
-                        KeyCode::Enter => {
-                            if state.port_names.selected().is_some() {
-                                state.is_running = true;
-                                state.messages.clear();
-                                state.connect()?;
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            }
-        }
-
-        if last_tick.elapsed() >= TICK_RATE {
-            last_tick = Instant::now();
-            state.update_ports()?;
-
-            if !state.is_running {
-                continue;
-            }
-
-            state.collect();
-        }
+impl crate::app::Base for App {
+    fn setup(&mut self) -> anyhow::Result<()> {
+        self.update_ports()
     }
 
-    Ok(())
-}
+    fn update(&mut self) -> anyhow::Result<crate::app::Flow> {
+        self.update_ports()?;
 
-termtools::main!(run);
+        if !self.is_running {
+            return Ok(crate::app::Flow::Loop);
+        }
+
+        self.collect();
+
+        Ok(crate::app::Flow::Continue)
+    }
+
+    fn handle_key(&mut self, key: crossterm::event::KeyEvent) -> anyhow::Result<crate::app::Flow> {
+        match key.code {
+            KeyCode::Char('?') => self.show_usage = !self.show_usage,
+            KeyCode::Char('q') | KeyCode::Esc => {
+                if self.show_usage {
+                    self.show_usage = false
+                } else {
+                    return Ok(crate::app::Flow::Exit);
+                }
+            }
+            KeyCode::Char('c') => self.messages.clear(),
+            KeyCode::Char(' ') => self.is_running = !self.is_running,
+            KeyCode::Down | KeyCode::Char('j') => self.port_names.next(),
+            KeyCode::Up | KeyCode::Char('k') => self.port_names.previous(),
+            KeyCode::Enter => {
+                if self.port_names.selected().is_some() {
+                    self.port_names.confirm_selection();
+                    self.is_running = true;
+                    self.messages.clear();
+                    self.connect()?;
+                }
+            }
+            _ => {}
+        }
+
+        Ok(crate::app::Flow::Continue)
+    }
+}

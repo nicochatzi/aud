@@ -1,23 +1,56 @@
+# `aud`
+
+![aud](./res/aud.gif)
+
+<details><summary><b>project info</b></summary>
+Requires <a href="https://www.rust-lang.org/tools/install">Rust</a> and <a href="https://github.com/casey/just">Just</a>
+
+    Build and install with:
+
+    `just build install <INSTALL_DIR>`
+
+    given <INSTALL_DIR> is in your $PATH
+
+    most apps have a usage popup that appears by pressing: `?`
+
+    Some renders aren't 100%... `vhs` is still cool!
+
+<img src="./res/just.gif">
+</details>
+
 ## `midimon`
 
-![midimon_gif](./res/midimon.gif)
+![midimon](./res/midimon.gif)
 
-<details>
-  <summary><b>?</b></summary>
+<details><summary><b>?</b></summary>
 
     MIDI Input Monitor
 
+    Select an input port and watch the MIDI messages coming in.
+
 </details>
 
-## `zelink`
+## `auscope`
 
-![zelink_gif](./res/zelink.gif)
+![auscope](./res/auscope.gif)
 
-<details>
-  <summary><b>?</b></summary>
+<details><summary><b>?</b></summary>
+
+    Audio Oscilloscope
+
+    Select and audio device and watch the audio signal.
+    Startup option to scope inputs or outputs.
+
+</details>
+
+## `derlink`
+
+![derlink](./res/derlink.gif)
+
+<details><summary><b>?</b></summary>
 
     Ableton Link controller!
 
-    There's a neat progress bar that "vhs" seems to miss in the gif.
-
 </details>
+
+
