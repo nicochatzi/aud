@@ -71,7 +71,7 @@ impl App {
                     move |timestamp, bytes, sender| {
                         if let Some(msg) = MidiMessageString::new(timestamp, bytes) {
                             if let Err(e) = sender.try_send(msg) {
-                                println!("failed to push midi message : {e}");
+                                log::error!("failed to push midi message : {e}");
                             }
                         }
                     },

@@ -18,6 +18,20 @@ enum Commands {
 }
 
 fn main() -> anyhow::Result<()> {
+    fern::Dispatch::new()
+        .format(|out, message, record| {
+            out.finish(format_args!(
+                "[{} {} {}] {}",
+                humantime::format_rfc3339_seconds(std::time::SystemTime::now()),
+                record.level(),
+                record.target(),
+                message
+            ))
+        })
+        .level(log::LevelFilter::Trace)
+        .chain(std::io::stdout())
+        .apply()?;
+
     let args = Cli::parse();
 
     let mut terminal = aud::terminal::acquire()?;
@@ -32,7 +46,7 @@ fn main() -> anyhow::Result<()> {
     aud::terminal::release()?;
 
     if let Err(e) = app_result {
-        eprintln!("{e}");
+        log::error!("{e}");
     }
 
     Ok(())

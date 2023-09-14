@@ -51,7 +51,7 @@ macro_rules! main {
             $crate::terminal::release()?;
 
             if let Err(e) = app_result {
-                eprintln!("{e}");
+                log::error!("{e}");
             }
 
             Ok(())

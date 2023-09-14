@@ -38,7 +38,7 @@ where
 {
     let channels = config.channels as usize;
 
-    let err_handler = |e| eprintln!("an error occurred on stream: {e}");
+    let err_handler = |e| log::error!("an error occurred on stream: {e}");
     let push_buffer = move |data: &[T]| {
         let mut buffer = vec![vec![0.; data.len() / channels]; channels];
 
@@ -49,7 +49,7 @@ where
         }
 
         if let Err(e) = sender.try_send(buffer) {
-            eprintln!("failed to push audio: {e}");
+            log::error!("failed to push audio: {e}");
         }
     };
 

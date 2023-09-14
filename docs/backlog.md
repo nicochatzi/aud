@@ -1,9 +1,5 @@
 ## `midimon`
 
-- [ ] Make messages scrollable - like the selector widget
-- [ ] With scrollable messages, a new pane could show details (maybe a popup?)
-    - Timestamp -> precise time, time between this message the previous and the next in `ms`
-    - Render sysex by parsing it with a user provided script
 - [ ] Some sort of filtering!
 
 ## `auscope`
@@ -13,8 +9,6 @@
 - [ ] Add channel / bus selector
     - Chart 1 or 2 signals max
     - 1 pane to select the device, second to select the channel or group (stereo)
-- [ ] Peak detection
-- [ ] Discontinuity detection
 
 ## `derlink`
 
@@ -24,6 +18,9 @@
 
 ### apps
 
+- `streams`: hook into stream and run scripts on them 
+    - send/receive/parse audio/sysex/raw-midi
+- `sysexio`: send, receive and log sysex messages, controlled by lua
 - `latency`: measure round trip audio or midi to audio latency
     - top left pane: MIDI output port
     - top right pane: audio input port
@@ -42,6 +39,7 @@
 - `oscview`: view incoming OSC messages on a given port
 - `mpeview`: view incoming MIDI MPE messages (grouped controls/notes per channel)
 - `midiseq`: random midi note (and cc?) generator
+- `audimon`: monitor audio levels, peak detection, discontinuity, rms, etc..
 
 ### features
 
