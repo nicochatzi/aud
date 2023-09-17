@@ -4,4 +4,6 @@
 .swp
 Cargo.lock
 /target
-/bin
+/out
+/log
+.env

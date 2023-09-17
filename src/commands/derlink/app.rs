@@ -1,4 +1,5 @@
 use crossterm::event::KeyCode;
+use ratatui::prelude::*;
 
 pub struct App {
     pub show_usage: bool,
@@ -96,18 +97,12 @@ impl App {
 }
 
 impl crate::app::Base for App {
-    fn setup(&mut self) -> anyhow::Result<()> {
-        self.enable_start_stop_sync(!self.is_start_stop_sync_enabled());
-        self.enable(!self.is_enabled());
-        Ok(())
-    }
-
     fn update(&mut self) -> anyhow::Result<crate::app::Flow> {
         self.capture_session_state();
         Ok(crate::app::Flow::Continue)
     }
 
-    fn handle_key(&mut self, key: crossterm::event::KeyEvent) -> anyhow::Result<crate::app::Flow> {
+    fn on_keypress(&mut self, key: crossterm::event::KeyEvent) -> anyhow::Result<crate::app::Flow> {
         match key.code {
             KeyCode::Char('?') => self.show_usage = !self.show_usage,
             KeyCode::Char('q') | KeyCode::Esc => {
@@ -138,5 +133,9 @@ impl crate::app::Base for App {
         }
 
         Ok(crate::app::Flow::Continue)
+    }
+
+    fn render(&mut self, f: &mut Frame<impl Backend>) {
+        super::ui::render(f, self)
     }
 }

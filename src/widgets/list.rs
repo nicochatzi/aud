@@ -64,8 +64,19 @@ impl<T> StatefulList<T> {
         self.selection = self.state.selected();
     }
 
+    pub fn select(&mut self, index: usize) {
+        if index < self.items.len() {
+            self.state.select(Some(index));
+        }
+    }
+
     pub fn selected(&self) -> Option<usize> {
         self.state.selected()
+    }
+
+    pub fn selected_item(&self) -> Option<&T> {
+        let index = self.state.selected()?;
+        self.items.get(index)
     }
 }
 
@@ -78,6 +89,7 @@ where
         f: &mut Frame<B>,
         area: Rect,
         title: &'a str,
+        is_highlighted: bool,
     ) {
         let items: Vec<ListItem> = self
             .items
@@ -95,11 +107,17 @@ where
             })
             .collect();
 
+        let border_color = if is_highlighted {
+            Color::Gray
+        } else {
+            Color::DarkGray
+        };
+
         let items = List::new(items)
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .fg(Color::DarkGray)
+                    .fg(border_color)
                     .title(title),
             )
             .highlight_style(Style::default().add_modifier(Modifier::BOLD))

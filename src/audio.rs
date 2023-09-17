@@ -1,28 +1,38 @@
 use cpal::{traits::*, FromSample, Sample, SizedSample};
 use crossbeam::channel::Sender;
 
-pub enum Dir {
+#[derive(Copy, Clone)]
+pub enum Direction {
     In,
     Out,
+}
+
+impl Direction {
+    fn as_str(self) -> &'static str {
+        match self {
+            Direction::In => "input",
+            Direction::Out => "output",
+        }
+    }
 }
 
 pub fn stream(
     sender: Sender<Vec<Vec<f32>>>,
     device: &cpal::Device,
     config: cpal::SupportedStreamConfig,
-    dir: Dir,
+    direction: Direction,
 ) -> anyhow::Result<cpal::Stream> {
     match config.sample_format() {
-        cpal::SampleFormat::I8 => run::<i8>(sender, device, &config.into(), dir),
-        cpal::SampleFormat::I16 => run::<i16>(sender, device, &config.into(), dir),
-        cpal::SampleFormat::I32 => run::<i32>(sender, device, &config.into(), dir),
-        cpal::SampleFormat::I64 => run::<i64>(sender, device, &config.into(), dir),
-        cpal::SampleFormat::U8 => run::<u8>(sender, device, &config.into(), dir),
-        cpal::SampleFormat::U16 => run::<u16>(sender, device, &config.into(), dir),
-        cpal::SampleFormat::U32 => run::<u32>(sender, device, &config.into(), dir),
-        cpal::SampleFormat::U64 => run::<u64>(sender, device, &config.into(), dir),
-        cpal::SampleFormat::F32 => run::<f32>(sender, device, &config.into(), dir),
-        cpal::SampleFormat::F64 => run::<f64>(sender, device, &config.into(), dir),
+        cpal::SampleFormat::I8 => run::<i8>(sender, device, &config.into(), direction),
+        cpal::SampleFormat::I16 => run::<i16>(sender, device, &config.into(), direction),
+        cpal::SampleFormat::I32 => run::<i32>(sender, device, &config.into(), direction),
+        cpal::SampleFormat::I64 => run::<i64>(sender, device, &config.into(), direction),
+        cpal::SampleFormat::U8 => run::<u8>(sender, device, &config.into(), direction),
+        cpal::SampleFormat::U16 => run::<u16>(sender, device, &config.into(), direction),
+        cpal::SampleFormat::U32 => run::<u32>(sender, device, &config.into(), direction),
+        cpal::SampleFormat::U64 => run::<u64>(sender, device, &config.into(), direction),
+        cpal::SampleFormat::F32 => run::<f32>(sender, device, &config.into(), direction),
+        cpal::SampleFormat::F64 => run::<f64>(sender, device, &config.into(), direction),
         sample_format => anyhow::bail!("Unsupported sample format '{sample_format}'"),
     }
 }
@@ -31,14 +41,20 @@ fn run<T>(
     sender: Sender<Vec<Vec<f32>>>,
     device: &cpal::Device,
     config: &cpal::StreamConfig,
-    dir: Dir,
+    direction: Direction,
 ) -> anyhow::Result<cpal::Stream>
 where
     T: SizedSample + FromSample<f32>,
 {
     let channels = config.channels as usize;
 
-    let err_handler = |e| log::error!("an error occurred on stream: {e}");
+    let err_handler = move |e| {
+        log::error!(
+            "an error occurred in audio {} stream: {e}",
+            direction.as_str()
+        )
+    };
+
     let push_buffer = move |data: &[T]| {
         let mut buffer = vec![vec![0.; data.len() / channels]; channels];
 
@@ -53,14 +69,14 @@ where
         }
     };
 
-    let stream = match dir {
-        Dir::In => device.build_input_stream(
+    let stream = match direction {
+        Direction::In => device.build_input_stream(
             config,
             move |data: &[T], _| push_buffer(data),
             err_handler,
             None,
         )?,
-        Dir::Out => device.build_output_stream(
+        Direction::Out => device.build_output_stream(
             config,
             move |data: &mut [T], _| push_buffer(data),
             err_handler,
@@ -69,6 +85,8 @@ where
     };
 
     stream.play()?;
+
+    log::trace!("started audio {} stream", direction.as_str());
 
     Ok(stream)
 }

@@ -66,6 +66,6 @@ pub fn render<B: Backend>(f: &mut Frame<B>, app: &mut super::app::App) {
     f.render_widget(beat_gauge, sections[1]);
 
     if app.show_usage {
-        crate::widgets::usage::render(f, USAGE);
+        crate::widgets::text::render_usage_popup(f, USAGE);
     }
 }

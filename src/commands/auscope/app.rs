@@ -2,14 +2,24 @@ use crate::widgets::StatefulList;
 use cpal::traits::*;
 use crossbeam::channel::{Receiver, Sender};
 use crossterm::event::KeyCode;
+use ratatui::prelude::*;
+
+const USAGE: &str = r#"
+         ? : display help
+   <SPACE> : pause / resume
+   <UP>, k : scroll up
+ <DOWN>, j : scroll down
+     Enter : confirm selection
+  <ESC>, q : quit or hide help
+     <C-c> : force quit
+"#;
 
 pub struct App {
-    pub device_names: StatefulList<String>,
-    pub selection: Option<String>,
-    pub is_running: bool,
-    pub show_usage: bool,
-    pub audio_buffer: Vec<Vec<f32>>,
-
+    device_names: StatefulList<String>,
+    selection: Option<String>,
+    is_running: bool,
+    show_usage: bool,
+    audio_buffer: Vec<Vec<f32>>,
     sender: Sender<Vec<Vec<f32>>>,
     receiver: Receiver<Vec<Vec<f32>>>,
     host: cpal::Host,
@@ -70,7 +80,7 @@ impl App {
             self.sender.clone(),
             &device,
             device.default_input_config()?,
-            crate::audio::Dir::In,
+            crate::audio::Direction::In,
         )?);
 
         Ok(())
@@ -78,10 +88,6 @@ impl App {
 }
 
 impl crate::app::Base for App {
-    fn setup(&mut self) -> anyhow::Result<()> {
-        self.update_device_list()
-    }
-
     fn update(&mut self) -> anyhow::Result<crate::app::Flow> {
         if !self.is_running {
             return Ok(crate::app::Flow::Loop);
@@ -107,7 +113,7 @@ impl crate::app::Base for App {
         Ok(crate::app::Flow::Continue)
     }
 
-    fn handle_key(&mut self, key: crossterm::event::KeyEvent) -> anyhow::Result<crate::app::Flow> {
+    fn on_keypress(&mut self, key: crossterm::event::KeyEvent) -> anyhow::Result<crate::app::Flow> {
         match key.code {
             KeyCode::Char('?') => self.show_usage = !self.show_usage,
             KeyCode::Char('q') | KeyCode::Esc => {
@@ -134,5 +140,32 @@ impl crate::app::Base for App {
         }
 
         Ok(crate::app::Flow::Continue)
+    }
+
+    fn render(&mut self, f: &mut Frame<impl Backend>) {
+        let sections = Layout::default()
+            .direction(Direction::Horizontal)
+            .margin(1)
+            .constraints([Constraint::Min(32), Constraint::Percentage(90)].as_ref())
+            .split(f.size());
+
+        self.device_names
+            .render_selector(f, sections[0], "˧ devices ꜔", false);
+
+        let selected_device_name = match self.selection.clone() {
+            Some(name) => format!("˧ {name} ꜔"),
+            None => "".to_owned(),
+        };
+
+        crate::widgets::scope::render(
+            f,
+            sections[1],
+            &selected_device_name,
+            &mut self.audio_buffer,
+        );
+
+        if self.show_usage {
+            crate::widgets::text::render_usage_popup(f, USAGE);
+        }
     }
 }

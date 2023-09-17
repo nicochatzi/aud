@@ -16,6 +16,11 @@ clap = { version = "4.4.3", features = ["derive"] }
 log = "0.4.20"
 fern = "0.6.2"
 humantime = "2.1.0"
+mlua = { version = "0.9.1", features = ["lua54", "unstable"] }
+notify = "6.1.1"
+clap_complete = "4.4.1"
+colored = "2.0.4"
+syntect = "5.1.0"
 
 [profile.release]
 lto = "fat"

@@ -1,19 +1,22 @@
 <h1 align="center"><code>aud</code></h1>
 
 <p align="center">
-<code>aud</code>io related utilities in your terminal
-
-![sine](./res/sine.png)
+scriptable <code>aud</code>io terminal tools
 </p>
 
+<p align="center">
+<img src="./res/sine.png">
+</p>
 
-</center>
+🧱 Requires [Rust](https://www.rust-lang.org/tools/install) and [Just](https://github.com/casey/just)
 
-🔨 Requires [Rust](https://www.rust-lang.org/tools/install) and [Just](https://github.com/casey/just)
+🔨 `just install <INSTALL_DIR>`: build `aud` and install it on your system
 
-🧱 Build and install with `just build install <INSTALL_DIR>`
+💻 `just setup`: setup development environment for this project
 
-🎥 [See renders here](./docs/renders.md) - note some renders aren't totally representative
+🎥 [Renders](./doc/renders.md) - some renders aren't 100% representative
+
+📚 [APIs](./api/) for the scriptable commands
 
 <details>
     <summary>latest list of commands</summary>

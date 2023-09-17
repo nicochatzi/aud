@@ -1,5 +1,7 @@
 pub mod audio;
 pub mod commands;
+pub mod file;
+pub mod lua;
 pub mod midi;
 pub mod widgets;
 
@@ -10,53 +12,42 @@ pub mod terminal {
     };
     use ratatui::prelude::*;
 
-    pub fn acquire() -> anyhow::Result<Terminal<CrosstermBackend<std::io::Stdout>>> {
+    type CrossTerminal = Terminal<CrosstermBackend<std::io::Stdout>>;
+
+    pub fn with_terminal<F>(f: F) -> anyhow::Result<()>
+    where
+        F: FnOnce(&mut CrossTerminal) -> anyhow::Result<()>,
+    {
+        let mut terminal = acquire()?;
+        set_panic_hook();
+        f(&mut terminal)?;
+        release()
+    }
+
+    fn acquire() -> anyhow::Result<CrossTerminal> {
         let mut stdout = std::io::stdout();
         crossterm::execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
         crossterm::terminal::enable_raw_mode()?;
-        Ok(Terminal::new(backend::CrosstermBackend::new(stdout))?)
+
+        let mut terminal = Terminal::new(backend::CrosstermBackend::new(stdout))?;
+        terminal.hide_cursor()?;
+
+        Ok(terminal)
     }
 
-    pub fn release() -> anyhow::Result<()> {
+    fn release() -> anyhow::Result<()> {
         crossterm::terminal::disable_raw_mode()?;
         crossterm::execute!(std::io::stdout(), LeaveAlternateScreen, DisableMouseCapture)?;
         Ok(())
     }
 
-    pub fn set_panic_hook() {
+    fn set_panic_hook() {
         let original_hook = std::panic::take_hook();
         std::panic::set_hook(Box::new(move |panic| {
             release().unwrap();
             original_hook(panic);
         }));
     }
-}
-
-/// Generate the main function given a terminal app runner:
-///
-/// ```
-/// fn run<B: Backend>(_terminal: &mut Terminal<B>) -> anyhow::Result<()> {
-///     Ok(())
-/// }
-/// ```
-#[macro_export]
-macro_rules! main {
-    ($app_entry: expr) => {
-        pub fn main() -> anyhow::Result<()> {
-            let mut terminal = $crate::terminal::acquire()?;
-            $crate::terminal::set_panic_hook();
-
-            let app_result = $app_entry(&mut terminal);
-
-            $crate::terminal::release()?;
-
-            if let Err(e) = app_result {
-                log::error!("{e}");
-            }
-
-            Ok(())
-        }
-    };
 }
 
 pub mod app {
@@ -70,39 +61,45 @@ pub mod app {
         Exit,
     }
 
-    pub trait Base: Default {
-        fn setup(&mut self) -> anyhow::Result<()> {
-            Ok(())
-        }
-
+    pub trait Base {
+        /// Called at terminal refresh rate
         fn update(&mut self) -> anyhow::Result<Flow> {
             Ok(Flow::Continue)
         }
 
-        fn handle_key(&mut self, _key: KeyEvent) -> anyhow::Result<Flow> {
+        /// Called when a key press has been detected
+        fn on_keypress(&mut self, _key: KeyEvent) -> anyhow::Result<Flow> {
             Ok(Flow::Continue)
         }
+
+        /// Called the specified directory's content has changed
+        fn on_dirchange(&mut self) -> anyhow::Result<Flow> {
+            Ok(Flow::Continue)
+        }
+
+        /// Called the specified file has been written to
+        fn on_filewrite(&mut self) -> anyhow::Result<Flow> {
+            Ok(Flow::Continue)
+        }
+
+        /// Render the terminal UI frame
+        fn render(&mut self, frame: &mut Frame<impl Backend>);
     }
 
-    pub fn run<A, B, F>(terminal: &mut Terminal<B>, render_ui: F) -> anyhow::Result<()>
-    where
-        A: Base,
-        B: Backend,
-        F: Fn(&mut Frame<B>, &mut A),
-    {
-        const TICK_RATE: Duration = Duration::from_millis(33);
-
+    pub fn run(
+        terminal: &mut Terminal<impl Backend>,
+        app: &mut impl Base,
+        fps: f32,
+    ) -> anyhow::Result<()> {
         terminal.clear()?;
 
-        let mut app = A::default();
-        app.setup()?;
-
+        let tick_rate = Duration::from_millis((1000. / fps) as u64);
         let mut last_tick = Instant::now();
 
         loop {
-            terminal.draw(|f| render_ui(f, &mut app))?;
+            terminal.draw(|f| app.render(f))?;
 
-            let timeout = TICK_RATE
+            let timeout = tick_rate
                 .checked_sub(last_tick.elapsed())
                 .unwrap_or_else(|| Duration::from_secs(0));
 
@@ -115,7 +112,7 @@ pub mod app {
                             {
                                 return Ok(())
                             }
-                            _ => match app.handle_key(key)? {
+                            _ => match app.on_keypress(key)? {
                                 Flow::Continue => (),
                                 Flow::Loop => continue,
                                 Flow::Exit => break,
@@ -125,7 +122,7 @@ pub mod app {
                 }
             }
 
-            if last_tick.elapsed() >= TICK_RATE {
+            if last_tick.elapsed() >= tick_rate {
                 last_tick = Instant::now();
                 match app.update()? {
                     Flow::Continue => (),
@@ -135,6 +132,51 @@ pub mod app {
             }
         }
 
+        Ok(())
+    }
+}
+
+pub mod logger {
+    use std::{
+        path::Path,
+        sync::{
+            atomic::{AtomicBool, Ordering},
+            Once,
+        },
+    };
+
+    static INIT: Once = Once::new();
+    static IS_INITIALIZED: AtomicBool = AtomicBool::new(false);
+
+    pub fn is_active() -> bool {
+        IS_INITIALIZED.load(Ordering::SeqCst)
+    }
+
+    pub fn start(id: &str, file: impl AsRef<Path>) -> anyhow::Result<()> {
+        if is_active() {
+            anyhow::bail!("attempted to setup logger more than once");
+        }
+
+        let id = format!("{} {}", id.to_owned(), std::process::id());
+        fern::Dispatch::new()
+            .format(move |out, message, record| {
+                out.finish(format_args!(
+                    "[{id}] : [{} {} {}] : {}",
+                    humantime::format_rfc3339_seconds(std::time::SystemTime::now()),
+                    record.level(),
+                    record.target(),
+                    message
+                ))
+            })
+            .level(log::LevelFilter::Trace)
+            // Disable logs for `mio`
+            .level_for("mio", log::LevelFilter::Off)
+            .chain(fern::log_file(file.as_ref())?)
+            .apply()?;
+
+        log::trace!("started");
+
+        INIT.call_once(|| IS_INITIALIZED.store(true, Ordering::SeqCst));
         Ok(())
     }
 }
