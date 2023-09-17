@@ -11,15 +11,15 @@ Enter
 Sleep 250ms
 
 Type "?"
-Sleep 5s
+Sleep 4s
 Type "q"
 
 Type "a"
-Sleep 5s
+Sleep 4s
 Type "q"
 
 Type "d"
-Sleep 5s
+Sleep 4s
 Type "q"
 
 Type "l"
@@ -34,6 +34,7 @@ Type "q"
 
 Sleep 250ms
 Type "h"
+Sleep 250ms
 Enter
 Sleep 5s
 

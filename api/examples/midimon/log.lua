@@ -12,10 +12,7 @@ end
 
 function on_midi(device_name, bytes)
 	log("on_midi : " .. device_name .. " : " ..#bytes .. " bytes")
-end
-
-function on_tick()
-	log("on_tick")
+	return true
 end
 
 function on_stop()

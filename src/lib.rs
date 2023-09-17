@@ -157,16 +157,24 @@ pub mod logger {
             anyhow::bail!("attempted to setup logger more than once");
         }
 
-        let id = format!("{} {}", id.to_owned(), std::process::id());
+        let id = format!("{}:{}", id.to_owned(), std::process::id());
         fern::Dispatch::new()
             .format(move |out, message, record| {
-                out.finish(format_args!(
-                    "[{id}] : [{} {} {}] : {}",
-                    humantime::format_rfc3339_seconds(std::time::SystemTime::now()),
-                    record.level(),
-                    record.target(),
-                    message
-                ))
+                if cfg!(debug_assertions) {
+                    out.finish(format_args!(
+                        "[ {id} ] : [ {} ] : [ {} ] : {} : {}",
+                        humantime::format_rfc3339_seconds(std::time::SystemTime::now()),
+                        record.target(),
+                        record.level(),
+                        message
+                    ))
+                } else {
+                    out.finish(format_args!(
+                        "[ {id} ] : [ {} ] : {}",
+                        humantime::format_rfc3339_seconds(std::time::SystemTime::now()),
+                        message
+                    ))
+                }
             })
             .level(log::LevelFilter::Trace)
             // Disable logs for `mio`

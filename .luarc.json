@@ -1,17 +1,15 @@
 {
     "diagnostics.globals": [
+        "on_start",
         "on_connect",
-        "on_midi",
-        "on_close",
         "on_discover",
+        "on_midi",
         "on_stop",
         "connect",
         "alert",
         "pause",
         "resume",
         "stop",
-        "on_start",
-        "log",
-        "on_tick"
+        "log"
     ]
 }

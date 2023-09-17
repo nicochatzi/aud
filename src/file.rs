@@ -10,3 +10,35 @@ pub fn watch(
     watcher.watch(path.as_ref(), RecursiveMode::Recursive)?;
     Ok(rx)
 }
+
+/// Default locations stored in `~/.aud`
+///
+/// .
+/// ├── api
+/// │  ├── aud/
+/// │  ├── examples/
+/// │  └── midimon/
+/// ├── bin
+/// │  └── aud
+/// └── log
+///    └── aud.log
+///
+pub mod locations {
+    use std::path::PathBuf;
+
+    pub fn aud() -> Option<PathBuf> {
+        Some(dirs::home_dir()?.join(".aud"))
+    }
+
+    pub fn bin() -> Option<PathBuf> {
+        Some(aud()?.join("bin"))
+    }
+
+    pub fn api() -> Option<PathBuf> {
+        Some(aud()?.join("api"))
+    }
+
+    pub fn log() -> Option<PathBuf> {
+        Some(aud()?.join("log"))
+    }
+}

@@ -21,9 +21,6 @@ const USAGE: &str = r#"
      <C-c> : force quit
 "#;
 
-const DOCS: &str = include_str!("../../../api/midimon/docs.lua");
-const API: &str = include_str!("../../../api/midimon/api.lua");
-
 pub struct App {
     is_running: bool,
     show_usage: bool,
@@ -41,29 +38,26 @@ pub struct App {
     port_selector: StatefulList<String>,
     script_selector: StatefulList<String>,
 
-    midi_tx: Sender<MidiMessageString>,
-    midi_rx: Receiver<MidiMessageString>,
-    midi_in: crate::midi::Input<Sender<MidiMessageString>>,
+    tx: Sender<HostEvent>,
+    rx: Receiver<ScriptEvent>,
+    vm: LuaRuntimeHandle,
+
+    midi_in: crate::midi::Input<Sender<HostEvent>>,
 
     selected_port_name: Option<String>,
     selected_script_name: Option<String>,
     loaded_script_content: Option<String>,
-
-    lua: Lua,
-    script_tx: Sender<ScriptEvent>,
-    script_rx: Receiver<ScriptEvent>,
 }
 
 impl Default for App {
     fn default() -> Self {
-        let (midi_tx, midi_rx) = crossbeam::channel::bounded(1_000);
-        let (script_tx, script_rx) = crossbeam::channel::bounded(1_000);
+        let (host_tx, host_rx) = crossbeam::channel::bounded::<HostEvent>(1_000);
+        let (script_tx, script_rx) = crossbeam::channel::bounded::<ScriptEvent>(1_000);
 
         Self {
-            midi_tx,
-            midi_rx,
-            script_tx,
-            script_rx,
+            tx: host_tx,
+            rx: script_rx,
+            vm: LuaRuntime::start(host_rx, script_tx.clone()),
             is_running: true,
             show_api: false,
             show_usage: false,
@@ -80,15 +74,17 @@ impl Default for App {
             script_dir: None,
             selected_script_name: None,
             loaded_script_content: None,
-            lua: Lua::new(),
         }
     }
 }
 
 impl Drop for App {
     fn drop(&mut self) {
-        if self.lua.has_loaded_script() {
-            self.lua.on_stop().unwrap();
+        if let Some(handle) = self.vm.handle.take() {
+            self.tx.try_send(HostEvent::Terminate).unwrap();
+            if handle.join().is_err() {
+                log::error!("Failed to join on Lua runtime thread handle");
+            }
         }
     }
 }
@@ -126,8 +122,9 @@ impl App {
         if input_port_names != self.port_selector.items {
             log::info!("MIDI input ports found : {input_port_names:?}");
 
-            if self.lua.has_loaded_script() {
-                self.lua.on_discover(&input_port_names)?;
+            let event = HostEvent::Discover(input_port_names.clone());
+            if let Err(e) = self.tx.try_send(event) {
+                log::error!("Failed to send device discovery event to runtime : {e}");
             }
 
             self.port_selector = StatefulList::with_items(input_port_names);
@@ -148,41 +145,22 @@ impl App {
         self.selected_port_name = self.midi_in.selection();
         self.midi_in.connect(
             {
-                let lua = self.lua.clone();
-                let device_name = self.selected_port_name.as_ref().unwrap().clone();
-
                 move |timestamp, bytes, sender| {
-                    let lua_on_midi = || match lua.on_midi(&device_name, bytes) {
-                        Ok(res) => res.unwrap_or(true),
-                        Err(e) => {
-                            log::error!("{e}");
-                            true
-                        }
+                    let midi = MidiData {
+                        timestamp,
+                        bytes: bytes.into(),
                     };
-
-                    let should_print_message = if lua.has_loaded_script() {
-                        lua_on_midi()
-                    } else {
-                        true
-                    };
-
-                    if !should_print_message {
-                        return;
-                    }
-
-                    if let Some(msg) = MidiMessageString::new(timestamp, bytes) {
-                        if let Err(e) = sender.try_send(msg) {
-                            log::error!("failed to push midi message : {e}");
-                        }
+                    if let Err(e) = sender.try_send(HostEvent::Midi(midi)) {
+                        log::error!("Failed to push midi message event to runtime : {e}");
                     }
                 }
             },
-            self.midi_tx.clone(),
+            self.tx.clone(),
         )?;
 
-        if self.lua.has_loaded_script() {
-            if let Some(name) = self.selected_port_name.as_ref() {
-                self.lua.on_connect(name)?;
+        if let Some(name) = self.selected_port_name.as_ref() {
+            if let Err(e) = self.tx.try_send(HostEvent::Connect(name.to_string())) {
+                log::error!("Failed to send device connected event to runtime : {e}");
             }
         }
 
@@ -203,21 +181,21 @@ impl App {
             anyhow::bail!("Invalid script path or type");
         }
 
-        if self.lua.has_loaded_script() {
-            self.lua.on_stop()?;
+        if let Err(e) = self.tx.try_send(HostEvent::Stop) {
+            log::error!("failed to send stop event : {e}");
         }
 
-        self.loaded_script_content = Some(std::fs::read_to_string(script_file)?);
+        let chunk = std::fs::read_to_string(script_file)?;
+        self.loaded_script_content = Some(chunk.clone());
 
-        self.lua.load(API)?;
-        self.lua
-            .load(self.loaded_script_content.as_ref().unwrap())?;
+        let event = HostEvent::LoadScript {
+            name: script_filename.to_owned(),
+            chunk,
+        };
 
-        log::info!("script loaded : {script_filename}");
-
-        self.lua
-            .setup_api(script_filename, self.script_tx.clone())?;
-        self.lua.on_start()?;
+        if let Err(e) = self.tx.try_send(event) {
+            log::error!("failed to send load script event : {e}");
+        }
 
         if self.midi_in.is_connected() {
             self.connect()?;
@@ -229,11 +207,7 @@ impl App {
 
 impl crate::app::Base for App {
     fn update(&mut self) -> anyhow::Result<crate::app::Flow> {
-        if self.lua.has_loaded_script() {
-            self.lua.on_tick()?;
-        }
-
-        while let Ok(script_event) = self.script_rx.try_recv() {
+        while let Ok(script_event) = self.rx.try_recv() {
             match script_event {
                 ScriptEvent::Connect(ref device) => {
                     if let Some(i) = self
@@ -250,9 +224,15 @@ impl crate::app::Base for App {
                     self.show_alert = true;
                     self.alert_message = Some(msg);
                 }
+                ScriptEvent::Log(msg) => log::info!("{msg}"),
                 ScriptEvent::Pause => self.is_running = false,
                 ScriptEvent::Resume => self.is_running = true,
                 ScriptEvent::Stop => return Ok(crate::app::Flow::Exit),
+                ScriptEvent::Midi(midi) => {
+                    if let Some(midi) = MidiMessageString::new(midi.timestamp, &midi.bytes) {
+                        self.messages.collect(vec![midi])
+                    }
+                }
             }
         }
 
@@ -261,8 +241,6 @@ impl crate::app::Base for App {
         if !self.is_running {
             return Ok(crate::app::Flow::Loop);
         }
-
-        self.messages.collect(self.midi_rx.try_iter().collect());
 
         Ok(crate::app::Flow::Continue)
     }

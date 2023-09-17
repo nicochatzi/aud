@@ -1,12 +1,13 @@
 local file = nil
+local filepath = 'out/midimon.mid'
 
 function on_start()
 	if file then io.close(file) end
 
-	file = io.open('out/midimon.mid', 'wb')
+	file = io.open(filepath, 'wb')
 	io.output(file)
 
-	log("starting to write")
+	alert("opening file : " .. filepath)
 end
 
 function on_midi(device_name, bytes)
@@ -22,7 +23,7 @@ end
 function on_stop()
 	if file then
 		file:close()
-		log("done writing")
+		alert("wrote file : " .. filepath)
 	end
 
 	file = nil

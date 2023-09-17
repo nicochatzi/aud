@@ -1,12 +1,26 @@
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc, Mutex,
-};
+use crate::lua::LuaEngine;
+use crossbeam::channel::{Receiver, Sender};
 
-use crossbeam::channel::Sender;
+pub const DOCS: &str = include_str!("../../../api/midimon/docs.lua");
+pub const API: &str = include_str!("../../../api/midimon/api.lua");
+
+pub struct MidiData {
+    pub timestamp: u64,
+    pub bytes: Vec<u8>,
+}
+
+pub enum HostEvent {
+    LoadScript { name: String, chunk: String },
+    Discover(Vec<String>),
+    Connect(String),
+    Midi(MidiData),
+    Stop,
+    Terminate,
+}
 
 pub enum ScriptEvent {
-    // TODO: Add Log Event and move Lua VM instance into MIDI thread
+    Log(String),
+    Midi(MidiData),
     Connect(String),
     Alert(String),
     Pause,
@@ -14,167 +28,184 @@ pub enum ScriptEvent {
     Stop,
 }
 
-mod api {
-    use super::*;
-    use crossbeam::channel::Sender;
+pub struct LuaRuntime {
+    ctx: LuaEngine,
+    tx: Sender<ScriptEvent>,
+    rx: Receiver<HostEvent>,
+    device_name: Option<String>,
+}
 
-    pub fn add_log(lua: &mlua::Lua, name: &str) -> anyhow::Result<()> {
-        let log = lua.create_function({
-            let name = name.to_owned();
-            move |_, message: String| {
-                log::info!("{name} : {}", message);
-                Ok(())
+pub struct LuaRuntimeHandle {
+    pub handle: Option<std::thread::JoinHandle<anyhow::Result<()>>>,
+    _tx: Sender<ScriptEvent>,
+    _rx: Receiver<HostEvent>,
+}
+
+impl LuaRuntime {
+    pub fn start(rx: Receiver<HostEvent>, tx: Sender<ScriptEvent>) -> LuaRuntimeHandle {
+        let rx_ = rx.clone();
+        let tx_ = tx.clone();
+        let handle = std::thread::spawn(move || {
+            let mut runtime = Self {
+                ctx: crate::lua::LuaEngine::default(),
+                rx: rx_,
+                tx: tx_,
+                device_name: None,
+            };
+
+            runtime.setup().unwrap();
+            runtime.run().unwrap();
+            Ok(())
+        });
+
+        LuaRuntimeHandle {
+            handle: Some(handle),
+            _tx: tx,
+            _rx: rx,
+        }
+    }
+
+    fn run(&mut self) -> anyhow::Result<()> {
+        loop {
+            while let Ok(host_event) = self.rx.try_recv() {
+                match host_event {
+                    HostEvent::Stop => self.stop_script().unwrap(),
+                    HostEvent::LoadScript { name, chunk } => self.load_script(&name, &chunk)?,
+                    HostEvent::Discover(device_names) => {
+                        if self.ctx.has_script() {
+                            self.ctx.call("on_discover", device_names)?
+                        }
+                    }
+                    HostEvent::Connect(device_name) => {
+                        if self.ctx.has_script() {
+                            self.ctx.call("on_connect", device_name.as_str())?;
+                        }
+                        self.device_name = Some(device_name);
+                    }
+                    HostEvent::Midi(midi) => self.handle_midi(midi)?,
+                    HostEvent::Terminate => {
+                        self.stop_script()?;
+                        return Ok(());
+                    }
+                }
             }
-        })?;
-        lua.globals().set("log", log)?;
+        }
+    }
+
+    fn setup(&mut self) -> anyhow::Result<()> {
         Ok(())
     }
 
-    pub fn add_connect(lua: &mlua::Lua, name: &str, tx: Sender<ScriptEvent>) -> anyhow::Result<()> {
-        let connect = lua.create_function({
-            let name = name.to_owned();
-            move |_, device_name: String| {
-                if let Err(e) = tx.try_send(ScriptEvent::Connect(device_name)) {
-                    log::error!("{name} ! failed to send connection message : {}", e);
-                }
-                Ok(())
-            }
-        })?;
-        lua.globals().set("connect", connect)?;
+    fn load_script(&mut self, script_name: &str, chunk: &str) -> anyhow::Result<()> {
+        self.stop_script()?;
+        self.load_api(script_name)?;
+        self.ctx.load_chunk(API)?;
+        self.ctx.load_chunk(chunk)?;
+        log::info!("script loaded : {script_name}");
+        self.ctx.call("on_start", ())
+    }
+
+    fn handle_midi(&mut self, midi: MidiData) -> anyhow::Result<()> {
+        if !self.ctx.has_script() || self.device_name.is_none() {
+            return Ok(self.tx.try_send(ScriptEvent::Midi(midi))?);
+        }
+
+        let should_transfer: Option<bool> = self.ctx.call(
+            "on_midi",
+            (
+                self.device_name.as_ref().unwrap().as_str(),
+                midi.bytes.as_slice(),
+            ),
+        )?;
+
+        if should_transfer.unwrap_or(true) {
+            self.tx.try_send(ScriptEvent::Midi(midi))?;
+        }
+
         Ok(())
     }
 
-    pub fn add_alert(lua: &mlua::Lua, name: &str, tx: Sender<ScriptEvent>) -> anyhow::Result<()> {
-        let alert = lua.create_function({
-            let name = name.to_owned();
-            move |_, device_name: String| {
-                if let Err(e) = tx.try_send(ScriptEvent::Alert(device_name)) {
-                    log::error!("{name} ! failed to send alert message : {}", e);
-                }
-                Ok(())
-            }
-        })?;
-        lua.globals().set("alert", alert)?;
-        Ok(())
+    fn load_api(&self, name: &str) -> anyhow::Result<()> {
+        add_log(&self.ctx, name.to_owned(), self.tx.clone())?;
+        add_connect(&self.ctx, name.to_owned(), self.tx.clone())?;
+        add_alert(&self.ctx, name.to_owned(), self.tx.clone())?;
+        add_resume(&self.ctx, name.to_owned(), self.tx.clone())?;
+        add_pause(&self.ctx, name.to_owned(), self.tx.clone())?;
+        add_stop(&self.ctx, name.to_owned(), self.tx.clone())
     }
 
-    pub fn add_pause(lua: &mlua::Lua, name: &str, tx: Sender<ScriptEvent>) -> anyhow::Result<()> {
-        let pause = lua.create_function({
-            let name = name.to_owned();
-            move |_, (): ()| {
-                if let Err(e) = tx.try_send(ScriptEvent::Pause) {
-                    log::error!("{name} ! failed to send pause message : {}", e);
-                }
-                Ok(())
-            }
-        })?;
-        lua.globals().set("pause", pause)?;
-        Ok(())
-    }
+    fn stop_script(&mut self) -> anyhow::Result<()> {
+        if self.ctx.has_script() {
+            self.ctx.call("on_stop", ())?;
+        }
 
-    pub fn add_resume(lua: &mlua::Lua, name: &str, tx: Sender<ScriptEvent>) -> anyhow::Result<()> {
-        let resume = lua.create_function({
-            let name = name.to_owned();
-            move |_, (): ()| {
-                if let Err(e) = tx.try_send(ScriptEvent::Resume) {
-                    log::error!("{name} ! failed to send resume message : {}", e);
-                }
-                Ok(())
-            }
-        })?;
-        lua.globals().set("resume", resume)?;
-        Ok(())
-    }
-
-    pub fn add_stop(lua: &mlua::Lua, name: &str, tx: Sender<ScriptEvent>) -> anyhow::Result<()> {
-        let stop = lua.create_function({
-            let name = name.to_owned();
-            move |_, (): ()| {
-                if let Err(e) = tx.try_send(ScriptEvent::Stop) {
-                    log::error!("{name} ! failed to send stop message : {}", e);
-                }
-                Ok(())
-            }
-        })?;
-        lua.globals().set("stop", stop)?;
+        self.ctx.release_script();
         Ok(())
     }
 }
 
-#[derive(Clone)]
-pub struct Lua {
-    vm: Arc<Mutex<mlua::Lua>>,
-    has_loaded_script: Arc<AtomicBool>,
+pub fn add_log(lua: &LuaEngine, name: String, tx: Sender<ScriptEvent>) -> anyhow::Result<()> {
+    lua.set_fn("log", {
+        move |_, message: String| {
+            if let Err(e) = tx.try_send(ScriptEvent::Log(message)) {
+                log::error!("{name} ! failed to send log event : {}", e);
+            }
+            Ok(())
+        }
+    })
 }
 
-unsafe impl Send for Lua {}
-unsafe impl Sync for Lua {}
-
-impl Lua {
-    pub fn new() -> Self {
-        Self {
-            vm: Arc::new(Mutex::new(mlua::Lua::new())),
-            has_loaded_script: Arc::new(AtomicBool::new(false)),
-        }
-    }
-
-    pub fn load(&self, script: &str) -> anyhow::Result<()> {
-        match self.vm.try_lock() {
-            Ok(ctx) => ctx.load(script).exec()?,
-            Err(_) => anyhow::bail!("Failed to lock Lua VM"),
-        }
-
-        self.has_loaded_script.store(true, Ordering::SeqCst);
-        Ok(())
-    }
-
-    pub fn has_loaded_script(&self) -> bool {
-        self.has_loaded_script.load(Ordering::SeqCst)
-    }
-
-    pub fn setup_api(&self, script_filename: &str, tx: Sender<ScriptEvent>) -> anyhow::Result<()> {
-        match self.vm.try_lock() {
-            Ok(ctx) => {
-                api::add_log(&ctx, script_filename)?;
-                api::add_connect(&ctx, script_filename, tx.clone())?;
-                api::add_alert(&ctx, script_filename, tx.clone())?;
-                api::add_pause(&ctx, script_filename, tx.clone())?;
-                api::add_resume(&ctx, script_filename, tx.clone())?;
-                api::add_stop(&ctx, script_filename, tx.clone())?;
-                Ok(())
+pub fn add_connect(lua: &LuaEngine, name: String, tx: Sender<ScriptEvent>) -> anyhow::Result<()> {
+    lua.set_fn("connect", {
+        move |_, device_name: String| {
+            if let Err(e) = tx.try_send(ScriptEvent::Connect(device_name)) {
+                log::error!("{name} ! failed to send connection event : {}", e);
             }
-            Err(_) => anyhow::bail!("Failed to lock Lua VM"),
+            Ok(())
         }
-    }
+    })
+}
 
-    fn get(&self, func_name: &'static str) -> anyhow::Result<mlua::OwnedFunction> {
-        match self.vm.try_lock() {
-            Ok(ctx) => Ok(ctx.globals().get(func_name)?),
-            Err(_) => anyhow::bail!("Failed to lock Lua VM"),
+pub fn add_alert(lua: &LuaEngine, name: String, tx: Sender<ScriptEvent>) -> anyhow::Result<()> {
+    lua.set_fn("alert", {
+        move |_, device_name: String| {
+            if let Err(e) = tx.try_send(ScriptEvent::Alert(device_name)) {
+                log::error!("{name} ! failed to send alert event : {}", e);
+            }
+            Ok(())
         }
-    }
+    })
+}
 
-    pub fn on_start(&self) -> anyhow::Result<()> {
-        Ok(self.get("on_start")?.call(())?)
-    }
+pub fn add_pause(lua: &LuaEngine, name: String, tx: Sender<ScriptEvent>) -> anyhow::Result<()> {
+    lua.set_fn("pause", {
+        move |_, (): ()| {
+            if let Err(e) = tx.try_send(ScriptEvent::Pause) {
+                log::error!("{name} ! failed to send pause event : {}", e);
+            }
+            Ok(())
+        }
+    })
+}
 
-    pub fn on_discover(&self, device_names: &[String]) -> anyhow::Result<()> {
-        Ok(self.get("on_discover")?.call(device_names)?)
-    }
+pub fn add_resume(lua: &LuaEngine, name: String, tx: Sender<ScriptEvent>) -> anyhow::Result<()> {
+    lua.set_fn("resume", {
+        move |_, (): ()| {
+            if let Err(e) = tx.try_send(ScriptEvent::Resume) {
+                log::error!("{name} ! failed to send resume event : {}", e);
+            }
+            Ok(())
+        }
+    })
+}
 
-    pub fn on_connect(&self, device_name: &str) -> anyhow::Result<()> {
-        Ok(self.get("on_connect")?.call(device_name)?)
-    }
-
-    pub fn on_midi(&self, device_name: &str, bytes: &[u8]) -> anyhow::Result<Option<bool>> {
-        Ok(self.get("on_midi")?.call((device_name, bytes))?)
-    }
-
-    pub fn on_tick(&self) -> anyhow::Result<()> {
-        Ok(self.get("on_tick")?.call(())?)
-    }
-
-    pub fn on_stop(&self) -> anyhow::Result<()> {
-        Ok(self.get("on_stop")?.call(())?)
-    }
+pub fn add_stop(lua: &LuaEngine, name: String, tx: Sender<ScriptEvent>) -> anyhow::Result<()> {
+    lua.set_fn("stop", {
+        move |_, (): ()| {
+            if let Err(e) = tx.try_send(ScriptEvent::Stop) {
+                log::error!("{name} ! failed to send stop event : {}", e);
+            }
+            Ok(())
+        }
+    })
 }

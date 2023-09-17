@@ -1,7 +1,3 @@
-function on_start()
-	alert("started!")
-end
-
 function on_midi(_, bytes)
 	if bytes == nil or #bytes < 1 then
 		return true

@@ -14,7 +14,7 @@ pub struct Options {
 }
 
 pub fn run(terminal: &mut Terminal<impl Backend>, opts: Options) -> anyhow::Result<()> {
-    if let Some(log_file) = opts.log {
+    if let Some(log_file) = opts.log.or(crate::file::locations::log()) {
         crate::logger::start("auscope", log_file)?;
     }
 

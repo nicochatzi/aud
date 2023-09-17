@@ -64,11 +64,6 @@ setup: (_setup_packages)
 	"just audit\n"\
 	> .git/hooks/pre-push
 	chmod +x .git/hooks/pre-push
-	echo "#!/bin/sh\n\n"\
-	"just install './out' tape render\n"\
-	"git add res/\n"\
-	> .git/hooks/pre-commit
-	chmod +x .git/hooks/pre-commit
 
 # check for unused dependencies - requires cargo-udeps
 _udeps:
