@@ -1,5 +1,8 @@
 mod app;
 mod lua;
+mod ui;
+
+pub mod state;
 
 use ratatui::prelude::*;
 

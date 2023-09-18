@@ -1,4 +1,4 @@
-use crate::widgets::StatefulList;
+use crate::widgets::OwnedList;
 use cpal::traits::*;
 use crossbeam::channel::{Receiver, Sender};
 use crossterm::event::KeyCode;
@@ -15,7 +15,7 @@ const USAGE: &str = r#"
 "#;
 
 pub struct App {
-    device_names: StatefulList<String>,
+    device_names: OwnedList<String>,
     selection: Option<String>,
     is_running: bool,
     show_usage: bool,
@@ -32,7 +32,7 @@ impl Default for App {
         let host = cpal::default_host();
 
         Self {
-            device_names: StatefulList::default(),
+            device_names: OwnedList::default(),
             selection: None,
             sender,
             receiver,
@@ -47,7 +47,7 @@ impl Default for App {
 
 impl App {
     pub fn update_device_list(&mut self) -> anyhow::Result<()> {
-        self.device_names = StatefulList::with_items(
+        self.device_names = OwnedList::with_items(
             self.host
                 .input_devices()?
                 .map(|x| x.name().unwrap())
@@ -59,7 +59,7 @@ impl App {
 
     pub fn connect(&mut self) -> anyhow::Result<()> {
         let mut input_devices = self.host.input_devices()?;
-        let Some(selected_index) = self.device_names.selected() else {
+        let Some(selected_index) = self.device_names.list.selected() else {
             anyhow::bail!("");
         };
 
@@ -124,11 +124,11 @@ impl crate::app::Base for App {
                 }
             }
             KeyCode::Char(' ') => self.is_running = !self.is_running,
-            KeyCode::Down | KeyCode::Char('j') => self.device_names.next(),
-            KeyCode::Up | KeyCode::Char('k') => self.device_names.previous(),
+            KeyCode::Down | KeyCode::Char('j') => self.device_names.list.next(),
+            KeyCode::Up | KeyCode::Char('k') => self.device_names.list.previous(),
             KeyCode::Enter => {
-                if self.device_names.selected().is_some() {
-                    self.device_names.confirm_selection();
+                if self.device_names.list.selected().is_some() {
+                    self.device_names.list.confirm_selection();
                     self.is_running = true;
                     for buf in &mut self.audio_buffer {
                         buf.clear();

@@ -3,33 +3,44 @@ use std::borrow::Cow;
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState};
 
+/// List that does not own the data
+/// it's listing. It's up to the
+/// consumer to provide the range
+/// and a view of the elements
+/// when it's time to render.
 #[derive(Default)]
-pub struct StatefulList<T> {
-    pub state: ListState,
-    pub items: Vec<T>,
-    pub selection: Option<usize>,
+pub struct ListView {
+    state: ListState,
+    selection: Option<usize>,
+    len: usize,
 }
 
-impl<T> StatefulList<T> {
-    pub fn with_items(items: Vec<T>) -> StatefulList<T> {
+impl ListView {
+    pub fn with_len(len: usize) -> Self {
         let mut state = ListState::default();
-        state.select(items.len().ge(&1).then_some(0));
+        state.select(len.ge(&1).then_some(0));
 
         Self {
             state,
-            items,
             selection: None,
+            len,
         }
     }
 
+    pub fn resize(&mut self, new_len: usize, selection: Option<usize>) {
+        self.state.select(selection);
+        self.selection = selection;
+        self.len = new_len;
+    }
+
     pub fn next(&mut self) {
-        if self.items.is_empty() {
+        if self.len == 0 {
             return;
         }
 
         let i = match self.state.selected() {
             Some(i) => {
-                if i >= self.items.len() - 1 {
+                if i >= self.len - 1 {
                     0
                 } else {
                     i + 1
@@ -42,14 +53,14 @@ impl<T> StatefulList<T> {
     }
 
     pub fn previous(&mut self) {
-        if self.items.is_empty() {
+        if self.len == 0 {
             return;
         }
 
         let i = match self.state.selected() {
             Some(i) => {
                 if i == 0 {
-                    self.items.len() - 1
+                    self.len - 1
                 } else {
                     i - 1
                 }
@@ -65,7 +76,7 @@ impl<T> StatefulList<T> {
     }
 
     pub fn select(&mut self, index: usize) {
-        if index < self.items.len() {
+        if index < self.len {
             self.state.select(Some(index));
         }
     }
@@ -73,26 +84,21 @@ impl<T> StatefulList<T> {
     pub fn selected(&self) -> Option<usize> {
         self.state.selected()
     }
-
-    pub fn selected_item(&self) -> Option<&T> {
-        let index = self.state.selected()?;
-        self.items.get(index)
-    }
 }
 
-impl<T> StatefulList<T>
-where
-    for<'a> Cow<'a, str>: From<&'a T>,
-{
-    pub fn render_selector<'a, B: Backend>(
+impl ListView {
+    pub fn render_selector<'a, B, T>(
         &'a mut self,
         f: &mut Frame<B>,
         area: Rect,
         title: &'a str,
+        items: &[T],
         is_highlighted: bool,
-    ) {
-        let items: Vec<ListItem> = self
-            .items
+    ) where
+        for<'b> Cow<'b, str>: From<&'b T>,
+        B: Backend,
+    {
+        let items: Vec<ListItem> = items
             .iter()
             .enumerate()
             .map(|(i, item)| {
@@ -124,5 +130,42 @@ where
             .highlight_symbol("> ");
 
         f.render_stateful_widget(items, area, &mut self.state);
+    }
+}
+
+/// ListView that couples the data
+/// to the UI widget.
+#[derive(Default)]
+pub struct OwnedList<T> {
+    pub list: ListView,
+    pub items: Vec<T>,
+}
+
+impl<T> OwnedList<T> {
+    pub fn with_items(items: Vec<T>) -> Self {
+        Self {
+            list: ListView::with_len(items.len()),
+            items,
+        }
+    }
+
+    pub fn selected_item(&self) -> Option<&T> {
+        self.items.get(self.list.selected()?)
+    }
+}
+
+impl<T> OwnedList<T>
+where
+    for<'a> Cow<'a, str>: From<&'a T>,
+{
+    pub fn render_selector<'a, B: Backend>(
+        &'a mut self,
+        f: &mut Frame<B>,
+        area: Rect,
+        title: &'a str,
+        is_highlighted: bool,
+    ) {
+        self.list
+            .render_selector(f, area, title, &self.items, is_highlighted);
     }
 }

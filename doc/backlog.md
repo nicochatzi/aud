@@ -1,7 +1,3 @@
-## `midimon`
-
-- [ ] Some sort of filtering!
-
 ## `auscope`
 
 - [ ] App should append buffers, ui should consume as much as will fit on screen
@@ -10,16 +6,11 @@
     - Chart 1 or 2 signals max
     - 1 pane to select the device, second to select the channel or group (stereo)
 
-## `derlink`
-
-- [ ] Get information on / list peers?
-
 ## future
 
-### apps
+### commands
 
-- `streams`: hook into stream and run scripts on them 
-    - send/receive/parse audio/sysex/raw-midi
+- `update`: check for updates of `aud` and install it
 - `sysexio`: send, receive and log sysex messages, controlled by lua
 - `latency`: measure round trip audio or midi to audio latency
     - top left pane: MIDI output port
@@ -43,6 +34,7 @@
 
 ### features
 
+- install the `aud` Lua module and `api` scripts/examples on the target system
 - frame rate option at start-up for all apps
 - ability to copy to clipboard
 - make stateful widgets searchable

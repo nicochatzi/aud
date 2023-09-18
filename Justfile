@@ -29,7 +29,7 @@ install DIR='./out': build
 	mkdir -p {{DIR}}
 	cp target/release/aud {{DIR}}/aud
 
-# create cli recordings - requires `vhs` & `parallel`
+# create CLI recordings - requires `vhs` & `parallel`
 tape:
 	#!/usr/bin/env bash
 	parallel --ungroup vhs ::: vhs/*
@@ -46,9 +46,10 @@ render:
 		echo ""  >> doc/renders.md
 	done
 	
-# tail a log file
+# tail a log file - request `bat`
 log FILE='out/aud.log':
-	tail -f {{FILE}}
+	# log highlighting is available but yaml looks nicer
+	tail -n5 -f {{FILE}} | bat --paging=never -l=yaml --style=plain
 
 # create a new command - does not update `main.rs`
 new_cmd NAME: 

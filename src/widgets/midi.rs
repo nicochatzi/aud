@@ -15,6 +15,14 @@ impl MidiMessageStream {
         self.messages.clear();
     }
 
+    pub fn push(&mut self, message: crate::midi::MidiMessageString) {
+        if self.messages.len() > MAX_NUM_MESSAGES_ON_SCREEN {
+            let _ = self.messages.remove(0);
+        }
+
+        self.messages.push(message);
+    }
+
     pub fn collect(&mut self, mut messages: Vec<crate::midi::MidiMessageString>) {
         if self.messages.len() > MAX_NUM_MESSAGES_ON_SCREEN {
             self.messages = self

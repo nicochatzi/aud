@@ -30,7 +30,7 @@ impl<T: 'static + Send> Input<T> {
         self.selected_port.clone()
     }
 
-    pub fn names(&mut self) -> anyhow::Result<Vec<String>> {
+    pub fn names(&self) -> anyhow::Result<Vec<String>> {
         let ports = self.ports();
         let mut names = Vec::with_capacity(ports.len());
         for port in &ports {

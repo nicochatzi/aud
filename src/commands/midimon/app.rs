@@ -1,6 +1,6 @@
-use super::lua::*;
-use crate::midi::MidiMessageString;
-use crate::widgets::StatefulList;
+use super::{lua::*, ui::*};
+use crate::widgets::ListView;
+use crate::{lua::traits::api::*, midi::MidiMessageString};
 use crossbeam::channel::{Receiver, Sender};
 use crossterm::event::KeyCode;
 use ratatui::prelude::*;
@@ -35,17 +35,21 @@ pub struct App {
     script_dir: Option<std::path::PathBuf>,
 
     messages: crate::widgets::MidiMessageStream,
-    port_selector: StatefulList<String>,
-    script_selector: StatefulList<String>,
+    port_selector: ListView,
+    script_selector: ListView,
 
-    tx: Sender<HostEvent>,
-    rx: Receiver<ScriptEvent>,
-    vm: LuaRuntimeHandle,
+    port_names: Vec<String>,
+    selected_port_name: Option<String>,
+
+    script_names: Vec<String>,
+    selected_script_name: Option<String>,
+
+    host_tx: Sender<HostEvent>,
+    script_rx: Receiver<ScriptEvent>,
+    lua_handle: LuaRuntimeHandle,
 
     midi_in: crate::midi::Input<Sender<HostEvent>>,
 
-    selected_port_name: Option<String>,
-    selected_script_name: Option<String>,
     loaded_script_content: Option<String>,
 }
 
@@ -55,9 +59,9 @@ impl Default for App {
         let (script_tx, script_rx) = crossbeam::channel::bounded::<ScriptEvent>(1_000);
 
         Self {
-            tx: host_tx,
-            rx: script_rx,
-            vm: LuaRuntime::start(host_rx, script_tx.clone()),
+            host_tx,
+            script_rx,
+            lua_handle: LuaRuntime::start(host_rx, script_tx.clone()),
             is_running: true,
             show_api: false,
             show_usage: false,
@@ -67,8 +71,10 @@ impl Default for App {
             alert_message: None,
             is_port_selector_focused: true,
             selected_port_name: None,
-            port_selector: StatefulList::default(),
-            script_selector: StatefulList::default(),
+            port_selector: ListView::default(),
+            port_names: vec![],
+            script_selector: ListView::default(),
+            script_names: vec![],
             messages: crate::widgets::MidiMessageStream::default(),
             midi_in: crate::midi::Input::default(),
             script_dir: None,
@@ -80,11 +86,17 @@ impl Default for App {
 
 impl Drop for App {
     fn drop(&mut self) {
-        if let Some(handle) = self.vm.handle.take() {
-            self.tx.try_send(HostEvent::Terminate).unwrap();
-            if handle.join().is_err() {
-                log::error!("Failed to join on Lua runtime thread handle");
-            }
+        let Some(handle) = self.lua_handle.take_handle() else {
+            return;
+        };
+
+        if let Err(e) = self.host_tx.try_send(HostEvent::Terminate) {
+            log::error!("Failed to send termination message to Lua runtime : {e}");
+            return;
+        };
+
+        if handle.join().is_err() {
+            log::error!("Failed to join on Lua runtime thread handle");
         }
     }
 }
@@ -97,21 +109,20 @@ impl App {
     }
 
     pub fn set_scripts(&mut self, script_dir: impl AsRef<std::path::Path>) -> anyhow::Result<()> {
-        self.script_dir = Some(script_dir.as_ref().into());
+        let script_dir = script_dir.as_ref();
+        self.script_names = std::fs::read_dir(script_dir)?
+            .filter_map(|entry| {
+                let path = entry.ok()?.path();
+                if path.is_file() {
+                    path.file_name()?.to_str().map(|s| s.to_owned())
+                } else {
+                    None
+                }
+            })
+            .collect();
 
-        let entries = std::fs::read_dir(script_dir)?;
-        self.script_selector = StatefulList::with_items(
-            entries
-                .filter_map(|entry| {
-                    let path = entry.ok()?.path();
-                    if path.is_file() {
-                        path.file_name()?.to_str().map(|s| s.to_owned())
-                    } else {
-                        None
-                    }
-                })
-                .collect(),
-        );
+        self.script_dir = Some(script_dir.into());
+        self.script_selector = ListView::with_len(self.script_names.len());
 
         Ok(())
     }
@@ -119,15 +130,16 @@ impl App {
     fn update_ports(&mut self) -> anyhow::Result<()> {
         let input_port_names = self.midi_in.names()?;
 
-        if input_port_names != self.port_selector.items {
+        if input_port_names != self.port_names {
             log::info!("MIDI input ports found : {input_port_names:?}");
 
             let event = HostEvent::Discover(input_port_names.clone());
-            if let Err(e) = self.tx.try_send(event) {
+            if let Err(e) = self.host_tx.try_send(event) {
                 log::error!("Failed to send device discovery event to runtime : {e}");
             }
 
-            self.port_selector = StatefulList::with_items(input_port_names);
+            self.port_names = input_port_names;
+            self.port_selector = ListView::with_len(self.port_names.len());
         }
         Ok(())
     }
@@ -137,7 +149,7 @@ impl App {
             return Ok(());
         };
 
-        let Some(input_port) = self.port_selector.items.get(index) else {
+        let Some(input_port) = self.port_names.get(index) else {
             anyhow::bail!("Invalid port selection");
         };
 
@@ -155,11 +167,11 @@ impl App {
                     }
                 }
             },
-            self.tx.clone(),
+            self.host_tx.clone(),
         )?;
 
         if let Some(name) = self.selected_port_name.as_ref() {
-            if let Err(e) = self.tx.try_send(HostEvent::Connect(name.to_string())) {
+            if let Err(e) = self.host_tx.try_send(HostEvent::Connect(name.to_string())) {
                 log::error!("Failed to send device connected event to runtime : {e}");
             }
         }
@@ -167,13 +179,23 @@ impl App {
         Ok(())
     }
 
-    fn load_script(&mut self) -> anyhow::Result<()> {
+    fn load_script(&mut self) -> anyhow::Result<bool> {
+        let Some(index) = self.script_selector.selected() else {
+            return Ok(false);
+        };
+
+        let Some(script_name) = self.script_names.get(index) else {
+            anyhow::bail!("Invalid port selection");
+        };
+
+        self.selected_script_name = Some(script_name.into());
+
         let Some(ref script_dir) = self.script_dir else {
             anyhow::bail!("Script directory is unspecified");
         };
 
         let Some(ref script_filename) = self.selected_script_name else {
-            anyhow::bail!("No selected script ");
+            anyhow::bail!("No selected script");
         };
 
         let script_file = script_dir.join(script_filename);
@@ -181,7 +203,7 @@ impl App {
             anyhow::bail!("Invalid script path or type");
         }
 
-        if let Err(e) = self.tx.try_send(HostEvent::Stop) {
+        if let Err(e) = self.host_tx.try_send(HostEvent::Stop) {
             log::error!("failed to send stop event : {e}");
         }
 
@@ -193,7 +215,7 @@ impl App {
             chunk,
         };
 
-        if let Err(e) = self.tx.try_send(event) {
+        if let Err(e) = self.host_tx.try_send(event) {
             log::error!("failed to send load script event : {e}");
         }
 
@@ -201,36 +223,55 @@ impl App {
             self.connect()?;
         }
 
+        Ok(true)
+    }
+
+    fn handle_lua_connect_request(&mut self, request: ConnectionApiEvent) -> anyhow::Result<()> {
+        let ConnectionApiEvent { ref device } = request;
+
+        if let Some(i) = self.port_names.iter().position(|name| name == device) {
+            self.port_selector.select(i);
+            self.connect()?;
+        }
+
         Ok(())
+    }
+
+    fn handle_lua_control_request(&mut self, request: ControlFlowApiEvent) -> bool {
+        match request {
+            ControlFlowApiEvent::Pause => self.is_running = false,
+            ControlFlowApiEvent::Resume => self.is_running = true,
+            ControlFlowApiEvent::Stop => return false,
+        }
+
+        true
+    }
+
+    fn handle_lua_log_request(&mut self, request: LogApiEvent) {
+        match request {
+            LogApiEvent::Log(msg) => log::info!("{msg}"),
+            LogApiEvent::Alert(msg) => {
+                self.show_alert = true;
+                self.alert_message = Some(msg);
+            }
+        }
     }
 }
 
 impl crate::app::Base for App {
     fn update(&mut self) -> anyhow::Result<crate::app::Flow> {
-        while let Ok(script_event) = self.rx.try_recv() {
+        while let Ok(script_event) = self.script_rx.try_recv() {
             match script_event {
-                ScriptEvent::Connect(ref device) => {
-                    if let Some(i) = self
-                        .port_selector
-                        .items
-                        .iter()
-                        .position(|name| name == device)
-                    {
-                        self.port_selector.select(i);
-                        self.connect()?;
+                ScriptEvent::Connect(request) => self.handle_lua_connect_request(request)?,
+                ScriptEvent::Control(request) => {
+                    if !self.handle_lua_control_request(request) {
+                        return Ok(crate::app::Flow::Exit);
                     }
                 }
-                ScriptEvent::Alert(msg) => {
-                    self.show_alert = true;
-                    self.alert_message = Some(msg);
-                }
-                ScriptEvent::Log(msg) => log::info!("{msg}"),
-                ScriptEvent::Pause => self.is_running = false,
-                ScriptEvent::Resume => self.is_running = true,
-                ScriptEvent::Stop => return Ok(crate::app::Flow::Exit),
+                ScriptEvent::Log(request) => self.handle_lua_log_request(request),
                 ScriptEvent::Midi(midi) => {
                     if let Some(midi) = MidiMessageString::new(midi.timestamp, &midi.bytes) {
-                        self.messages.collect(vec![midi])
+                        self.messages.push(midi)
                     }
                 }
             }
@@ -316,7 +357,6 @@ impl crate::app::Base for App {
                     }
                 } else if self.script_selector.selected().is_some() {
                     self.script_selector.confirm_selection();
-                    self.selected_script_name = self.script_selector.selected_item().cloned();
                     self.load_script()?;
                 }
             }
@@ -341,14 +381,17 @@ impl crate::app::Base for App {
 
         let has_script_dir = self.script_dir.as_ref().is_some_and(|dir| dir.is_dir());
 
+        let port_selector_section = if has_script_dir {
+            top_sections[0]
+        } else {
+            sections[0]
+        };
+
         self.port_selector.render_selector(
             f,
-            if has_script_dir {
-                top_sections[0]
-            } else {
-                sections[0]
-            },
+            port_selector_section,
             "˧ ports ꜔",
+            &self.port_names,
             self.is_port_selector_focused,
         );
 
@@ -357,6 +400,7 @@ impl crate::app::Base for App {
                 f,
                 top_sections[1],
                 "˧ scripts ꜔",
+                &self.script_names,
                 !self.is_port_selector_focused,
             )
         }

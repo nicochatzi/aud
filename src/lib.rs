@@ -72,16 +72,6 @@ pub mod app {
             Ok(Flow::Continue)
         }
 
-        /// Called the specified directory's content has changed
-        fn on_dirchange(&mut self) -> anyhow::Result<Flow> {
-            Ok(Flow::Continue)
-        }
-
-        /// Called the specified file has been written to
-        fn on_filewrite(&mut self) -> anyhow::Result<Flow> {
-            Ok(Flow::Continue)
-        }
-
         /// Render the terminal UI frame
         fn render(&mut self, frame: &mut Frame<impl Backend>);
     }
@@ -158,22 +148,19 @@ pub mod logger {
         }
 
         let id = format!("{}:{}", id.to_owned(), std::process::id());
+
         fern::Dispatch::new()
-            .format(move |out, message, record| {
+            .format(move |out, msg, record| {
+                let time = humantime::format_rfc3339_seconds(std::time::SystemTime::now());
+
                 if cfg!(debug_assertions) {
                     out.finish(format_args!(
-                        "[ {id} ] : [ {} ] : [ {} ] : {} : {}",
-                        humantime::format_rfc3339_seconds(std::time::SystemTime::now()),
+                        "[ {id} ] : [ {time} ] : [ {}:{} ] : {msg}",
                         record.target(),
                         record.level(),
-                        message
                     ))
                 } else {
-                    out.finish(format_args!(
-                        "[ {id} ] : [ {} ] : {}",
-                        humantime::format_rfc3339_seconds(std::time::SystemTime::now()),
-                        message
-                    ))
+                    out.finish(format_args!("[ {id} ] : [ {time} ] : {msg}"))
                 }
             })
             .level(log::LevelFilter::Trace)

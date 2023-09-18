@@ -16,7 +16,3 @@ function list_commands(device)
 
 	return device_commands[device] or common_commands
 end
-
-function parse_sysex(device, bytes)
-	return "From: " .. device .. "\nReceived SysEx: " .. table.concat(bytes, ' ')
-end

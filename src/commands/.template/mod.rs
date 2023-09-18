@@ -37,7 +37,7 @@ impl crate::app::Base for App {
         Ok(crate::app::Flow::Continue)
     }
 
-    fn handle_key(&mut self, key: crossterm::event::KeyEvent) -> anyhow::Result<crate::app::Flow> {
+    fn on_keypress(&mut self, key: crossterm::event::KeyEvent) -> anyhow::Result<crate::app::Flow> {
         match key.code {
             KeyCode::Char('?') => self.show_usage = !self.show_usage,
             KeyCode::Char('q') | KeyCode::Esc => {
@@ -55,7 +55,7 @@ impl crate::app::Base for App {
 
     fn render(&mut self, f: &mut Frame<impl Backend>) {
         if self.show_usage {
-            crate::widgets::usage::render(f, USAGE);
+            crate::widgets::text::render_usage_popup(f, USAGE);
         }
     }
 }
