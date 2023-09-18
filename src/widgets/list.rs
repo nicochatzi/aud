@@ -87,7 +87,7 @@ impl ListView {
 }
 
 impl ListView {
-    pub fn render_selector<'a, B, T>(
+    pub fn render<'a, B, T>(
         &'a mut self,
         f: &mut Frame<B>,
         area: Rect,
@@ -166,6 +166,6 @@ where
         is_highlighted: bool,
     ) {
         self.list
-            .render_selector(f, area, title, &self.items, is_highlighted);
+            .render(f, area, title, &self.items, is_highlighted);
     }
 }

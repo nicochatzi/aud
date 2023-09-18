@@ -44,6 +44,16 @@ pub mod terminal {
     fn set_panic_hook() {
         let original_hook = std::panic::take_hook();
         std::panic::set_hook(Box::new(move |panic| {
+            // our Lua Runtime might panic, which is handled in "gracefully" in the app.
+            // however, that panic will still trigger the global panic handler
+            // so we need to specifically filter out panics originating from
+            // the file that triggers the panic
+            if let Some(location) = panic.location() {
+                if location.file() == "src/commands/midimon/lua.rs" {
+                    return;
+                }
+            }
+
             release().unwrap();
             original_hook(panic);
         }));
@@ -155,7 +165,7 @@ pub mod logger {
 
                 if cfg!(debug_assertions) {
                     out.finish(format_args!(
-                        "[ {id} ] : [ {time} ] : [ {}:{} ] : {msg}",
+                        "[ {id} ] : [ {time} ] : [ {} {} ] : {msg}",
                         record.target(),
                         record.level(),
                     ))

@@ -69,22 +69,49 @@ impl LuaRuntime {
     pub fn start(rx: Receiver<HostEvent>, tx: Sender<ScriptEvent>) -> LuaRuntimeHandle {
         let rx_ = rx.clone();
         let tx_ = tx.clone();
-        let handle = std::thread::spawn(move || {
-            let mut runtime = Self {
-                ctx: crate::lua::LuaEngine::default(),
-                rx: rx_,
-                tx: tx_,
-                device_name: None,
-            };
 
-            runtime.run().unwrap();
-            Ok(())
+        let handle = std::thread::spawn({
+            let rx = rx.clone();
+            let tx = tx.clone();
+
+            move || loop {
+                let rx = rx.clone();
+                let tx = tx.clone();
+
+                let runtime_result =
+                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+                        let mut runtime = Self {
+                            ctx: crate::lua::LuaEngine::default(),
+                            rx,
+                            tx,
+                            device_name: None,
+                        };
+
+                        runtime.run().unwrap();
+                    }));
+
+                match runtime_result {
+                    Ok(_) => {
+                        log::trace!("Lua Runtime terminated");
+                        return Ok(());
+                    }
+                    Err(err) => {
+                        if let Some(string_message) = err.downcast_ref::<&str>() {
+                            log::error!("Lua Runtime Panic : {}", string_message);
+                        } else if let Some(string_message) = err.downcast_ref::<String>() {
+                            log::error!("Lua Runtime Panic : {}", string_message);
+                        } else {
+                            log::error!("Lua Runtime Panic : {:?}", err);
+                        }
+                    }
+                }
+            }
         });
 
         LuaRuntimeHandle {
             handle: Some(handle),
-            _tx: tx,
-            _rx: rx,
+            _tx: tx_,
+            _rx: rx_,
         }
     }
 

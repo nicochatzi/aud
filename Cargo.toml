@@ -22,7 +22,6 @@ clap_complete = "4.4.1"
 colored = "2.0.4"
 syntect = "5.1.0"
 dirs = "5.0.1"
-serde = { version = "1.0.188", features = ["derive"] }
 
 [profile.release]
 lto = "fat"

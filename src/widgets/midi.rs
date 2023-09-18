@@ -3,69 +3,47 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem},
 };
 
-const MAX_NUM_MESSAGES_ON_SCREEN: usize = 64;
+pub fn render_midi_messages(
+    f: &mut Frame<impl Backend>,
+    title: &str,
+    messages: &[crate::midi::MidiMessageString],
+    area: Rect,
+) {
+    const MAX_NUM_MESSAGES_ON_SCREEN: usize = 128;
 
-#[derive(Default)]
-pub struct MidiMessageStream {
-    messages: Vec<crate::midi::MidiMessageString>,
-}
+    let message_list: Vec<ListItem> = messages
+        .iter()
+        .rev()
+        .enumerate()
+        .take(MAX_NUM_MESSAGES_ON_SCREEN.min(messages.len()))
+        .map(|(i, msg)| {
+            let style = if i == 0 {
+                Style::default().add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+            };
 
-impl MidiMessageStream {
-    pub fn clear(&mut self) {
-        self.messages.clear();
-    }
+            ListItem::new(vec![Line::from(vec![
+                Span::styled(format!("[ {} ]", msg.timestamp), style.fg(Color::Gray)),
+                Span::styled(" : ", style.fg(Color::DarkGray)),
+                Span::styled(msg.category.clone(), style.fg(Color::Cyan)),
+                Span::styled(" : ", style.fg(Color::DarkGray)),
+                Span::styled(msg.data.clone(), style.fg(Color::Yellow)),
+            ])])
+        })
+        .collect();
 
-    pub fn push(&mut self, message: crate::midi::MidiMessageString) {
-        if self.messages.len() > MAX_NUM_MESSAGES_ON_SCREEN {
-            let _ = self.messages.remove(0);
-        }
+    let list = List::new(message_list)
+        .style(Style::default().fg(Color::Yellow))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .style(Style::default().fg(Color::DarkGray))
+                .title(Span::styled(
+                    title,
+                    Style::default().add_modifier(Modifier::BOLD),
+                )),
+        );
 
-        self.messages.push(message);
-    }
-
-    pub fn collect(&mut self, mut messages: Vec<crate::midi::MidiMessageString>) {
-        if self.messages.len() > MAX_NUM_MESSAGES_ON_SCREEN {
-            self.messages = self
-                .messages
-                .split_off(messages.len().min(self.messages.len() - 1));
-        }
-
-        self.messages.append(&mut messages);
-    }
-
-    pub fn make_list_view<'a>(&'a self, title: &'a str) -> List<'a> {
-        let message_list: Vec<ListItem> = self
-            .messages
-            .iter()
-            .rev()
-            .enumerate()
-            .map(|(i, msg)| {
-                let style = if i == 0 {
-                    Style::default().add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default()
-                };
-
-                ListItem::new(vec![Line::from(vec![
-                    Span::styled(format!("[ {} ]", msg.timestamp), style.fg(Color::Gray)),
-                    Span::styled(" : ", style.fg(Color::DarkGray)),
-                    Span::styled(msg.category.clone(), style.fg(Color::Cyan)),
-                    Span::styled(" : ", style.fg(Color::DarkGray)),
-                    Span::styled(msg.data.clone(), style.fg(Color::Yellow)),
-                ])])
-            })
-            .collect();
-
-        List::new(message_list)
-            .style(Style::default().fg(Color::Yellow))
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .style(Style::default().fg(Color::DarkGray))
-                    .title(Span::styled(
-                        title,
-                        Style::default().add_modifier(Modifier::BOLD),
-                    )),
-            )
-    }
+    f.render_widget(list, area);
 }

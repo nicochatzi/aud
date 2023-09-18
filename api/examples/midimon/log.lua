@@ -3,7 +3,7 @@ function on_start()
 end
 
 function on_discover(device_names)
-	log("on_discover : " .. device_names)
+	log("on_discover : [ " .. table.concat(device_names, ", ") .. " ]")
 end
 
 function on_connect(device_name)

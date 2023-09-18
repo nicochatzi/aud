@@ -1,6 +1,6 @@
 use super::{
+    app::App,
     lua::{API, DOCS},
-    state::State,
 };
 use crate::widgets::ListView;
 use crossterm::event::KeyCode;
@@ -37,11 +37,8 @@ pub struct Ui {
     script_dir: Option<std::path::PathBuf>,
     script_names: Vec<String>,
 
-    messages: crate::widgets::MidiMessageStream,
     port_selector: ListView,
     script_selector: ListView,
-
-    loaded_script_content: Option<String>,
 }
 
 impl Default for Ui {
@@ -56,10 +53,8 @@ impl Default for Ui {
             is_port_selector_focused: true,
             port_selector: ListView::default(),
             script_selector: ListView::default(),
-            messages: crate::widgets::MidiMessageStream::default(),
             script_dir: None,
             script_names: vec![],
-            loaded_script_content: None,
         }
     }
 }
@@ -67,13 +62,31 @@ impl Default for Ui {
 pub enum UiEvent {
     Continue,
     ToggleRunningState,
+    ClearMessages,
     Connect(usize),
     LoadScript(usize),
     Exit,
 }
 
 impl Ui {
-    pub fn set_script_dir(&mut self, script_dir: impl AsRef<Path>) -> anyhow::Result<()> {
+    pub fn scripts(&self) -> &[String] {
+        self.script_names.as_slice()
+    }
+
+    pub fn script_dir(&self) -> Option<&std::path::PathBuf> {
+        self.script_dir.as_ref()
+    }
+
+    pub fn update_port_names(&mut self, port_names: &[impl AsRef<str>]) {
+        self.port_selector = ListView::with_len(port_names.len());
+    }
+
+    pub fn show_alert_message(&mut self, alert_message: &str) {
+        self.show_alert = true;
+        self.alert_message = Some(alert_message.into());
+    }
+
+    pub fn update_script_dir(&mut self, script_dir: impl AsRef<Path>) -> anyhow::Result<()> {
         let script_dir = script_dir.as_ref();
         self.script_names = std::fs::read_dir(script_dir)?
             .filter_map(|entry| {
@@ -130,7 +143,7 @@ impl Ui {
                     return Ok(UiEvent::Exit);
                 }
             }
-            KeyCode::Char('c') => self.messages.clear(),
+            KeyCode::Char('c') => return Ok(UiEvent::ClearMessages),
             KeyCode::Char(' ') => return Ok(UiEvent::ToggleRunningState),
             KeyCode::Left | KeyCode::Char('h') => {
                 self.is_port_selector_focused = !self.is_port_selector_focused
@@ -171,7 +184,7 @@ impl Ui {
         Ok(UiEvent::Continue)
     }
 
-    pub fn render(&mut self, f: &mut Frame<impl Backend>, state: &State) {
+    pub fn render(&mut self, f: &mut Frame<impl Backend>, app: &App) {
         let sections = Layout::default()
             .direction(Direction::Vertical)
             .margin(1)
@@ -192,37 +205,46 @@ impl Ui {
             sections[0]
         };
 
-        self.port_selector.render_selector(
+        self.port_selector.render(
             f,
             port_selector_section,
             "˧ ports ꜔",
-            state.ports(),
+            app.ports(),
             self.is_port_selector_focused,
         );
 
         if has_script_dir {
-            self.script_selector.render_selector(
+            let script_dir = self.script_dir.as_ref().unwrap().to_string_lossy();
+
+            self.script_selector.render(
                 f,
                 top_sections[1],
-                "˧ scripts ꜔",
+                &format!("˧ {script_dir} ꜔"),
                 &self.script_names,
                 !self.is_port_selector_focused,
             )
         }
 
-        let selected_port_name = match state.selected_port() {
+        let selected_port_name = match app.selected_port() {
             Some(name) => format!("˧ port : {name} ꜔"),
             None => "".to_owned(),
         };
 
-        let selected_script_name = match state.selected_script() {
+        let selected_script_name = match app.selected_script() {
             Some(name) => format!("˧ script : {name} ꜔"),
             None => "".to_owned(),
         };
 
-        f.render_widget(
-            self.messages
-                .make_list_view(&format!("{selected_port_name}───{selected_script_name}")),
+        let running_state = if app.running() {
+            "˧ active ꜔"
+        } else {
+            "˧ paused ꜔"
+        };
+
+        crate::widgets::midi::render_midi_messages(
+            f,
+            &format!("{running_state}─{selected_port_name}─{selected_script_name}"),
+            app.messages(),
             sections[1],
         );
 
@@ -235,12 +257,16 @@ impl Ui {
         }
 
         if self.show_script {
-            let text = match self.loaded_script_content.as_ref() {
-                Some(code) => code,
-                None => "No script loaded",
-            };
+            let text = app
+                .loaded_script_path()
+                .and_then(|path| std::fs::read_to_string(path).ok())
+                .unwrap_or_else(|| "No script loaded".to_owned());
 
-            crate::widgets::text::render_code_popup(f, "˧ loaded script ꜔", text);
+            crate::widgets::text::render_code_popup(
+                f,
+                &format!("˧ {selected_script_name} ꜔"),
+                &text,
+            );
         }
 
         if self.show_usage {
