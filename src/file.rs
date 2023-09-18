@@ -1,6 +1,6 @@
 use crossbeam::channel::Receiver;
 use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Watch a path
 ///
@@ -26,7 +26,7 @@ pub fn watch(path: impl AsRef<Path>) -> anyhow::Result<Receiver<notify::Result<n
 ///    └── aud.log
 ///
 pub mod locations {
-    use std::path::PathBuf;
+    use super::*;
 
     pub fn aud() -> Option<PathBuf> {
         Some(dirs::home_dir()?.join(".aud"))
@@ -42,5 +42,13 @@ pub mod locations {
 
     pub fn log() -> Option<PathBuf> {
         Some(aud()?.join("log"))
+    }
+}
+
+pub mod files {
+    use super::*;
+
+    pub fn log() -> Option<PathBuf> {
+        Some(locations::log()?.join("aud.log"))
     }
 }
