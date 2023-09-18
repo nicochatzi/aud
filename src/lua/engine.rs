@@ -1,72 +1,79 @@
-use std::path::Path;
+use super::LuaRuntime;
+use crossbeam::channel::Receiver;
 
-pub struct LuaEngine {
-    ctx: mlua::Lua,
-    script: Option<String>,
+pub trait LuaRuntimeControlling: Clone + std::marker::Send {
+    fn run(&mut self, runtime: &mut LuaRuntime) -> anyhow::Result<()>;
 }
 
-impl Default for LuaEngine {
-    fn default() -> Self {
-        Self {
-            ctx: mlua::Lua::new(),
-            script: None,
-        }
+pub struct LuaEngineHandle {
+    handle: Option<std::thread::JoinHandle<anyhow::Result<()>>>,
+    rx: Receiver<LuaEngineEvent>,
+}
+
+impl LuaEngineHandle {
+    pub fn engine_events(&mut self) -> Receiver<LuaEngineEvent> {
+        self.rx.clone()
+    }
+
+    pub fn take_handle(&mut self) -> Option<std::thread::JoinHandle<anyhow::Result<()>>> {
+        self.handle.take()
     }
 }
 
-impl LuaEngine {
-    pub fn reload(&mut self) -> anyhow::Result<()> {
-        let Some(script) = self.script.clone() else {
-            return Ok(());
-        };
+pub enum LuaEngineEvent {
+    Panicked,
+    Terminated,
+}
 
-        self.load_file(script)
-    }
+pub fn start_engine<C>(controller: C) -> LuaEngineHandle
+where
+    C: LuaRuntimeControlling + 'static,
+{
+    let (tx, rx) = crossbeam::channel::unbounded();
 
-    pub fn release_script(&mut self) -> Option<String> {
-        self.script.take()
-    }
+    let handle = std::thread::spawn({
+        move || {
+            let controller = controller.clone();
 
-    pub fn has_script(&self) -> bool {
-        self.script.is_some()
-    }
+            loop {
+                let runtime_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe({
+                    let controller = controller.clone();
+                    move || {
+                        let mut runtime = crate::lua::LuaRuntime::default();
+                        let mut controller = controller.clone();
+                        controller.run(&mut runtime).unwrap();
+                    }
+                }));
 
-    pub fn load_file(&mut self, script: impl AsRef<Path>) -> anyhow::Result<()> {
-        let script = script.as_ref();
-        let is_lua_file = script.exists() && script.is_file() && script.ends_with(".lua");
-        if !is_lua_file {
-            anyhow::bail!("Invalid Lua script path : {}", script.display());
+                match runtime_result {
+                    Ok(_) => {
+                        if let Err(e) = tx.try_send(LuaEngineEvent::Terminated) {
+                            log::error!("Failed to send Lua Engine event : {e}");
+                        }
+
+                        log::trace!("Lua Runtime terminated");
+                        return Ok(());
+                    }
+                    Err(err) => {
+                        if let Err(e) = tx.try_send(LuaEngineEvent::Panicked) {
+                            log::error!("Failed to send Lua Engine event : {e}");
+                        }
+
+                        if let Some(string_message) = err.downcast_ref::<&str>() {
+                            log::error!("Lua Runtime Panic : {}", string_message);
+                        } else if let Some(string_message) = err.downcast_ref::<String>() {
+                            log::error!("Lua Runtime Panic : {}", string_message);
+                        } else {
+                            log::error!("Lua Runtime Panic : {:?}", err);
+                        }
+                    }
+                }
+            }
         }
+    });
 
-        self.load_chunk(&std::fs::read_to_string(script)?)
-    }
-
-    pub fn load_chunk(&mut self, chunk: &str) -> anyhow::Result<()> {
-        self.ctx.load(chunk).exec()?;
-        self.script = Some(chunk.into());
-        Ok(())
-    }
-
-    pub fn call<'lua, A, R>(&'lua self, func_name: &str, args: A) -> anyhow::Result<R>
-    where
-        A: mlua::IntoLuaMulti<'lua>,
-        R: mlua::FromLuaMulti<'lua>,
-    {
-        Ok(self
-            .ctx
-            .globals()
-            .get::<&str, mlua::Function<'lua>>(func_name.trim())?
-            .call(args)?)
-    }
-
-    pub fn set_fn<'lua, A, R, F>(&'lua self, name: &str, func: F) -> anyhow::Result<()>
-    where
-        A: mlua::FromLuaMulti<'lua>,
-        R: mlua::IntoLuaMulti<'lua>,
-        F: Fn(&'lua mlua::Lua, A) -> mlua::Result<R> + 'static,
-    {
-        let func = self.ctx.create_function(func)?;
-        self.ctx.globals().set(name, func)?;
-        Ok(())
+    LuaEngineHandle {
+        handle: Some(handle),
+        rx,
     }
 }

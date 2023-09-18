@@ -1,6 +1,6 @@
 use crate::lua::{
     traits::{api::*, hooks::*},
-    LuaEngine,
+    LuaRuntime, LuaRuntimeControlling,
 };
 use crossbeam::channel::{Receiver, Sender};
 
@@ -46,135 +46,83 @@ impl From<ConnectionApiEvent> for ScriptEvent {
     }
 }
 
-pub struct LuaRuntime {
-    ctx: LuaEngine,
+#[derive(Clone)]
+pub struct ScriptController {
     tx: Sender<ScriptEvent>,
     rx: Receiver<HostEvent>,
     device_name: Option<String>,
 }
 
-pub struct LuaRuntimeHandle {
-    handle: Option<std::thread::JoinHandle<anyhow::Result<()>>>,
-    _tx: Sender<ScriptEvent>,
-    _rx: Receiver<HostEvent>,
-}
-
-impl LuaRuntimeHandle {
-    pub fn take_handle(&mut self) -> Option<std::thread::JoinHandle<anyhow::Result<()>>> {
-        self.handle.take()
-    }
-}
-
-impl LuaRuntime {
-    pub fn start(rx: Receiver<HostEvent>, tx: Sender<ScriptEvent>) -> LuaRuntimeHandle {
-        let rx_ = rx.clone();
-        let tx_ = tx.clone();
-
-        let handle = std::thread::spawn({
-            let rx = rx.clone();
-            let tx = tx.clone();
-
-            move || loop {
-                let rx = rx.clone();
-                let tx = tx.clone();
-
-                let runtime_result =
-                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
-                        let mut runtime = Self {
-                            ctx: crate::lua::LuaEngine::default(),
-                            rx,
-                            tx,
-                            device_name: None,
-                        };
-
-                        runtime.run().unwrap();
-                    }));
-
-                match runtime_result {
-                    Ok(_) => {
-                        log::trace!("Lua Runtime terminated");
-                        return Ok(());
-                    }
-                    Err(err) => {
-                        if let Some(string_message) = err.downcast_ref::<&str>() {
-                            log::error!("Lua Runtime Panic : {}", string_message);
-                        } else if let Some(string_message) = err.downcast_ref::<String>() {
-                            log::error!("Lua Runtime Panic : {}", string_message);
-                        } else {
-                            log::error!("Lua Runtime Panic : {:?}", err);
-                        }
-                    }
-                }
-            }
-        });
-
-        LuaRuntimeHandle {
-            handle: Some(handle),
-            _tx: tx_,
-            _rx: rx_,
+impl ScriptController {
+    pub fn new(tx: Sender<ScriptEvent>, rx: Receiver<HostEvent>) -> Self {
+        Self {
+            tx,
+            rx,
+            device_name: None,
         }
     }
+}
 
-    fn run(&mut self) -> anyhow::Result<()> {
+impl LuaRuntimeControlling for ScriptController {
+    fn run(&mut self, lua: &mut LuaRuntime) -> anyhow::Result<()> {
         loop {
-            while let Ok(host_event) = self.rx.recv() {
-                match host_event {
-                    HostEvent::Stop => self.stop_script().unwrap(),
-                    HostEvent::LoadScript { name, chunk } => self.load_script(&name, &chunk)?,
-                    HostEvent::Discover(device_names) => self.ctx.on_discover(&device_names)?,
+            while let Ok(event) = self.rx.recv() {
+                match event {
+                    HostEvent::Stop => self.stop_script(lua)?,
+                    HostEvent::LoadScript { name, chunk } => {
+                        self.load_script(lua, &name, &chunk)?
+                    }
+                    HostEvent::Discover(device_names) => lua.on_discover(&device_names)?,
                     HostEvent::Connect(device_name) => {
-                        self.ctx.on_connect(device_name.as_str())?;
+                        lua.on_connect(device_name.as_str())?;
                         self.device_name = Some(device_name);
                     }
-                    HostEvent::Midi(midi) => self.handle_midi(midi)?,
+                    HostEvent::Midi(midi) => self.handle_midi(lua, midi)?,
                     HostEvent::Terminate => {
-                        self.stop_script()?;
+                        self.stop_script(lua).unwrap();
                         return Ok(());
                     }
                 }
             }
         }
     }
+}
 
-    fn load_script(&mut self, script_name: &str, chunk: &str) -> anyhow::Result<()> {
-        self.stop_script()?;
-        self.load_api(script_name)?;
-        self.ctx.load_chunk(API)?;
-        self.ctx.load_chunk(chunk)?;
-        log::info!("script loaded : {script_name}");
-        self.ctx.on_start()
+impl ScriptController {
+    fn load_script(&mut self, lua: &mut LuaRuntime, name: &str, chunk: &str) -> anyhow::Result<()> {
+        self.stop_script(lua)?;
+        lua.load_log(name.to_owned(), self.tx.clone())?;
+        lua.load_alert(name.to_owned(), self.tx.clone())?;
+        lua.load_connect(name.to_owned(), self.tx.clone())?;
+        lua.load_resume(name.to_owned(), self.tx.clone())?;
+        lua.load_pause(name.to_owned(), self.tx.clone())?;
+        lua.load_stop(name.to_owned(), self.tx.clone())?;
+        lua.load_chunk(API)?;
+        lua.load_chunk(chunk)?;
+        log::info!("script loaded : {name}");
+        lua.on_start()
     }
 
-    fn handle_midi(&mut self, midi: MidiData) -> anyhow::Result<()> {
+    fn stop_script(&mut self, lua: &mut LuaRuntime) -> anyhow::Result<()> {
+        lua.on_stop()?;
+        let _ = lua.release_script();
+        Ok(())
+    }
+
+    fn handle_midi(&mut self, lua: &LuaRuntime, midi: MidiData) -> anyhow::Result<()> {
         let device_name = if self.device_name.is_some() {
             self.device_name.as_ref().unwrap().as_str()
         } else {
             ""
         };
 
-        if self
-            .ctx
+        if lua
             .on_midi(device_name, midi.bytes.as_slice())?
             .unwrap_or(true)
         {
             self.tx.try_send(ScriptEvent::Midi(midi))?;
         }
 
-        Ok(())
-    }
-
-    fn load_api(&self, name: &str) -> anyhow::Result<()> {
-        self.ctx.load_log(name.to_owned(), self.tx.clone())?;
-        self.ctx.load_alert(name.to_owned(), self.tx.clone())?;
-        self.ctx.load_connect(name.to_owned(), self.tx.clone())?;
-        self.ctx.load_resume(name.to_owned(), self.tx.clone())?;
-        self.ctx.load_pause(name.to_owned(), self.tx.clone())?;
-        self.ctx.load_stop(name.to_owned(), self.tx.clone())
-    }
-
-    fn stop_script(&mut self) -> anyhow::Result<()> {
-        self.ctx.on_stop()?;
-        let _ = self.ctx.release_script();
         Ok(())
     }
 }

@@ -1,5 +1,8 @@
 use super::lua::*;
-use crate::{lua::traits::api::*, midi::MidiMessageString};
+use crate::{
+    lua::{traits::api::*, LuaEngineHandle},
+    midi::MidiMessageString,
+};
 use crossbeam::channel::{Receiver, Sender};
 use std::{
     path::{Path, PathBuf},
@@ -14,7 +17,7 @@ pub struct App {
 
     host_tx: Sender<HostEvent>,
     script_rx: Receiver<ScriptEvent>,
-    lua_handle: LuaRuntimeHandle,
+    lua_handle: LuaEngineHandle,
     midi_in: crate::midi::Input<Sender<HostEvent>>,
 
     port_names: Vec<String>,
@@ -38,7 +41,7 @@ impl Default for App {
             is_running: Arc::new(AtomicBool::new(true)),
             host_tx,
             script_rx,
-            lua_handle: LuaRuntime::start(host_rx, script_tx.clone()),
+            lua_handle: crate::lua::start_engine(ScriptController::new(script_tx, host_rx)),
             selected_port_name: None,
             port_names: midi_in.port_names().unwrap(),
             midi_in,

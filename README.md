@@ -14,7 +14,7 @@ scriptable <code>aud</code>io terminal tools
 
 💻 `just setup`: setup development environment for this project
 
-🌶️ Scriptable in [Lua](https://www.lua.org/start.html), with hooks and `hot-reloading`
+🌶️ Scriptable in [Lua](https://www.lua.org/start.html), with `hooks`, `hot-reloading` and `sandboxed panics`
 
 🎥 [Renders](./doc/renders.md) - some renders aren't 100% representative
 

@@ -2,7 +2,7 @@
 //!
 //! Access it by including the traits you need.
 
-use super::LuaEngine;
+use super::LuaRuntime;
 
 pub mod hooks {
     use super::*;
@@ -25,7 +25,7 @@ pub mod hooks {
         fn on_audio(&self, device_name: &str, data: Vec<Vec<f32>>) -> anyhow::Result<()>;
     }
 
-    impl TraceHookProviding for LuaEngine {
+    impl TraceHookProviding for LuaRuntime {
         fn on_start(&self) -> anyhow::Result<()> {
             match self.has_script() {
                 true => self.call("on_start", ()),
@@ -41,7 +41,7 @@ pub mod hooks {
         }
     }
 
-    impl ConnectionHookProviding for LuaEngine {
+    impl ConnectionHookProviding for LuaRuntime {
         fn on_discover(&self, device_names: &[String]) -> anyhow::Result<()> {
             match self.has_script() {
                 true => self.call("on_discover", device_names),
@@ -57,7 +57,7 @@ pub mod hooks {
         }
     }
 
-    impl MidiHookProviding for LuaEngine {
+    impl MidiHookProviding for LuaRuntime {
         fn on_midi(&self, device_name: &str, bytes: &[u8]) -> anyhow::Result<Option<bool>> {
             match self.has_script() {
                 true => self.call("on_midi", (device_name, bytes)),
@@ -66,7 +66,7 @@ pub mod hooks {
         }
     }
 
-    impl AudioHookProviding for LuaEngine {
+    impl AudioHookProviding for LuaRuntime {
         fn on_audio(&self, device_name: &str, data: Vec<Vec<f32>>) -> anyhow::Result<()> {
             match self.has_script() {
                 true => self.call("on_audio", (device_name, data)),
@@ -119,7 +119,7 @@ pub mod api {
         fn load_stop(&self, name: String, tx: Sender<E>) -> anyhow::Result<()>;
     }
 
-    impl<E> LogProviding<E> for LuaEngine
+    impl<E> LogProviding<E> for LuaRuntime
     where
         E: From<LogApiEvent> + 'static,
     {
@@ -146,7 +146,7 @@ pub mod api {
         }
     }
 
-    impl<E> ConnectionProviding<E> for LuaEngine
+    impl<E> ConnectionProviding<E> for LuaRuntime
     where
         E: From<ConnectionApiEvent> + 'static,
     {
@@ -162,7 +162,7 @@ pub mod api {
         }
     }
 
-    impl<E> ControlFlowProviding<E> for LuaEngine
+    impl<E> ControlFlowProviding<E> for LuaRuntime
     where
         E: From<ControlFlowApiEvent> + 'static,
     {
