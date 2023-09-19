@@ -16,7 +16,7 @@ impl Direction {
     }
 }
 
-pub fn stream(
+pub fn open(
     sender: Sender<Vec<Vec<f32>>>,
     device: &cpal::Device,
     config: cpal::SupportedStreamConfig,

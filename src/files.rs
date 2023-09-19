@@ -58,3 +58,20 @@ pub mod locations {
 pub fn log() -> Option<PathBuf> {
     Some(locations::log()?.join("aud.log"))
 }
+
+pub fn list_with_extension(dir: impl AsRef<Path>, ext: &str) -> anyhow::Result<Vec<String>> {
+    let filenames: Vec<_> = std::fs::read_dir(dir)?
+        .filter_map(|entry| {
+            let path = entry.ok()?.path();
+            if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some(ext) {
+                return path
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .map(|s| s.to_string());
+            }
+            None
+        })
+        .collect();
+
+    Ok(filenames)
+}

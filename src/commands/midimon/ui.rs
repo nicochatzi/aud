@@ -2,7 +2,10 @@ use super::{
     app::App,
     lua::{API, DOCS},
 };
-use crate::ui::{components, widgets};
+use crate::{
+    files,
+    ui::{components, widgets},
+};
 use crossterm::event::KeyCode;
 use ratatui::prelude::*;
 use std::path::Path;
@@ -99,20 +102,10 @@ impl Ui {
         self.alert_message = Some(alert_message.into());
     }
 
-    pub fn update_script_dir(&mut self, script_dir: impl AsRef<Path>) -> anyhow::Result<()> {
-        let script_dir = script_dir.as_ref();
-        self.script_names = std::fs::read_dir(script_dir)?
-            .filter_map(|entry| {
-                let path = entry.ok()?.path();
-                if path.is_file() {
-                    path.file_name()?.to_str().map(|s| s.to_owned())
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        self.script_dir = Some(script_dir.into());
+    pub fn update_script_dir(&mut self, dir: impl AsRef<Path>) -> anyhow::Result<()> {
+        let dir = dir.as_ref();
+        self.script_names = files::list_with_extension(dir, "lua")?;
+        self.script_dir = Some(dir.into());
         if let Some(sel) = self.selectors.get_mut(Selector::Script) {
             *sel = components::Selector::with_len(self.script_names.len());
         }

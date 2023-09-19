@@ -1,4 +1,7 @@
-use crate::ui::{components, widgets};
+use crate::{
+    files,
+    ui::{components, widgets},
+};
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::prelude::*;
 
@@ -60,6 +63,24 @@ impl Default for Ui {
 }
 
 impl Ui {
+    pub fn update_script_dir(&mut self, dir: impl AsRef<std::path::Path>) -> anyhow::Result<()> {
+        let dir = dir.as_ref();
+        self.script_names = files::list_with_extension(dir, "lua")?;
+        self.script_dir = Some(dir.into());
+        if let Some(sel) = self.selectors.get_mut(Selector::Script) {
+            *sel = components::Selector::with_len(self.script_names.len());
+        }
+        Ok(())
+    }
+
+    pub fn scripts(&self) -> &[String] {
+        self.script_names.as_slice()
+    }
+
+    pub fn script_dir(&self) -> Option<&std::path::PathBuf> {
+        self.script_dir.as_ref()
+    }
+
     pub fn update_device_names(&mut self, names: &[impl AsRef<str>]) {
         if let Some(devices) = self.selectors.get_mut(Selector::Device) {
             *devices = components::Selector::with_len(names.len());
@@ -102,9 +123,9 @@ impl Ui {
 
         let left_sections = Layout::default()
             .direction(Direction::Vertical)
-            .margin(1)
+            .margin(0)
             .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-            .split(sections[1]);
+            .split(sections[0]);
 
         let has_script_dir = self.script_dir.as_ref().is_some_and(|dir| dir.is_dir());
         let device_selector_section = if has_script_dir {

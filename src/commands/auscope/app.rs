@@ -1,3 +1,4 @@
+use crate::audio;
 use cpal::traits::*;
 use crossbeam::channel::{Receiver, Sender};
 
@@ -63,11 +64,11 @@ impl App {
         }
 
         self.selection = Some(device.name()?);
-        self.stream = Some(crate::audio::stream(
+        self.stream = Some(audio::stream::open(
             self.sender.clone(),
             &device,
             device.default_input_config()?,
-            crate::audio::Direction::In,
+            audio::stream::Direction::In,
         )?);
 
         Ok(())

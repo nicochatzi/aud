@@ -79,5 +79,11 @@ pub fn run_with_tui(terminal: &mut Terminal<impl Backend>, opts: Options) -> any
     start_logger(opts.log)?;
 
     let mut app = TerminalApp::default();
+
+    if let Some(script) = opts.script {
+        log::info!("{:#?}", script.canonicalize()?);
+        app.ui.update_script_dir(script)?;
+    }
+
     crate::app::run(terminal, &mut app, opts.fps.max(1.))
 }
