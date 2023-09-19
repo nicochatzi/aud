@@ -4,6 +4,7 @@ mod ui;
 pub mod app;
 
 use ratatui::prelude::*;
+use std::path::PathBuf;
 
 struct TerminalApp {
     ui: ui::Ui,
@@ -25,7 +26,10 @@ impl crate::app::Base for TerminalApp {
             return Ok(crate::app::Flow::Exit);
         }
 
-        self.app.process_file_events()?;
+        let has_file_changed = self.app.process_file_events()?;
+        if has_file_changed {
+            self.ui.clear_script_cache();
+        }
         Ok(crate::app::Flow::Continue)
     }
 
@@ -47,6 +51,7 @@ impl crate::app::Base for TerminalApp {
                 self.app.load_script(script_path)?;
             }
         }
+
         Ok(crate::app::Flow::Continue)
     }
 
@@ -74,10 +79,20 @@ pub struct Options {
     script: Option<std::path::PathBuf>,
 }
 
-pub fn run(terminal: &mut Terminal<impl Backend>, opts: Options) -> anyhow::Result<()> {
-    if let Some(log_file) = opts.log.or(crate::file::files::log()) {
-        crate::logger::start("midimon", log_file)?;
+fn start_logger(log: Option<PathBuf>) -> anyhow::Result<()> {
+    match log.or(crate::files::log()) {
+        Some(log_file) => crate::logger::start("midimon", log_file),
+        None => Ok(()),
     }
+}
+
+pub fn run_headless(opts: Options) -> anyhow::Result<()> {
+    start_logger(opts.log)?;
+    Ok(())
+}
+
+pub fn run_with_tui(terminal: &mut Terminal<impl Backend>, opts: Options) -> anyhow::Result<()> {
+    start_logger(opts.log)?;
 
     let mut app = TerminalApp::default();
 
@@ -86,5 +101,5 @@ pub fn run(terminal: &mut Terminal<impl Backend>, opts: Options) -> anyhow::Resu
         app.ui.update_script_dir(script)?;
     }
 
-    crate::app::run(terminal, &mut app, opts.fps)
+    crate::app::run(terminal, &mut app, opts.fps.max(1.))
 }

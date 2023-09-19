@@ -2,7 +2,7 @@ use super::{
     app::App,
     lua::{API, DOCS},
 };
-use crate::widgets::ListView;
+use crate::ui::{components, widgets};
 use crossterm::event::KeyCode;
 use ratatui::prelude::*;
 use std::path::Path;
@@ -23,38 +23,45 @@ const USAGE: &str = r#"
      <C-c> : force quit
 "#;
 
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+enum Popup {
+    Usage,
+    Api,
+    Docs,
+    Script,
+    Alert,
+}
+
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+enum Selector {
+    Script,
+    Port,
+}
+
 pub struct Ui {
-    show_usage: bool,
-    show_api: bool,
-    show_script: bool,
-    show_docs: bool,
-    show_alert: bool,
-
+    popups: components::Popups<Popup>,
+    selectors: components::Selectors<Selector>,
     alert_message: Option<String>,
-
-    is_port_selector_focused: bool,
-
     script_dir: Option<std::path::PathBuf>,
     script_names: Vec<String>,
-
-    port_selector: ListView,
-    script_selector: ListView,
+    cached_script: Option<String>,
 }
 
 impl Default for Ui {
     fn default() -> Self {
         Self {
-            show_api: false,
-            show_usage: false,
-            show_script: false,
-            show_docs: false,
-            show_alert: false,
+            popups: components::Popups::new(&[
+                (Popup::Usage, components::PopupKind::Text),
+                (Popup::Api, components::PopupKind::Code),
+                (Popup::Docs, components::PopupKind::Code),
+                (Popup::Script, components::PopupKind::Code),
+                (Popup::Alert, components::PopupKind::Text),
+            ]),
+            selectors: components::Selectors::new(&[Selector::Script, Selector::Port]),
             alert_message: None,
-            is_port_selector_focused: true,
-            port_selector: ListView::default(),
-            script_selector: ListView::default(),
             script_dir: None,
             script_names: vec![],
+            cached_script: None,
         }
     }
 }
@@ -77,12 +84,18 @@ impl Ui {
         self.script_dir.as_ref()
     }
 
+    pub fn clear_script_cache(&mut self) {
+        self.cached_script = None;
+    }
+
     pub fn update_port_names(&mut self, port_names: &[impl AsRef<str>]) {
-        self.port_selector = ListView::with_len(port_names.len());
+        if let Some(sel) = self.selectors.get_mut(Selector::Port) {
+            *sel = components::Selector::with_len(port_names.len());
+        }
     }
 
     pub fn show_alert_message(&mut self, alert_message: &str) {
-        self.show_alert = true;
+        self.popups.show(Popup::Alert);
         self.alert_message = Some(alert_message.into());
     }
 
@@ -100,82 +113,40 @@ impl Ui {
             .collect();
 
         self.script_dir = Some(script_dir.into());
-        self.script_selector = ListView::with_len(self.script_names.len());
+        if let Some(sel) = self.selectors.get_mut(Selector::Script) {
+            *sel = components::Selector::with_len(self.script_names.len());
+        }
         Ok(())
     }
 
     pub fn handle_keypress(&mut self, key: crossterm::event::KeyEvent) -> anyhow::Result<UiEvent> {
         match key.code {
-            KeyCode::Char('?') => self.show_usage = !self.show_usage,
-            KeyCode::Char('a') => {
-                self.show_api = !self.show_api;
-                if self.show_api {
-                    self.show_docs = false;
-                    self.show_script = false;
-                }
-            }
-            KeyCode::Char('s') => {
-                self.show_script = !self.show_script;
-                if self.show_script {
-                    self.show_docs = false;
-                    self.show_api = false;
-                }
-            }
-            KeyCode::Char('d') => {
-                self.show_docs = !self.show_docs;
-                if self.show_docs {
-                    self.show_script = false;
-                    self.show_api = false;
-                }
-            }
+            KeyCode::Char('?') => self.popups.toggle_visible(Popup::Usage),
+            KeyCode::Char('a') => self.popups.toggle_visible(Popup::Api),
+            KeyCode::Char('s') => self.popups.toggle_visible(Popup::Script),
+            KeyCode::Char('d') => self.popups.toggle_visible(Popup::Docs),
             KeyCode::Char('q') | KeyCode::Esc => {
-                if self.show_usage {
-                    self.show_usage = false
-                } else if self.show_script {
-                    self.show_script = false
-                } else if self.show_docs {
-                    self.show_docs = false
-                } else if self.show_api {
-                    self.show_api = false
-                } else if self.show_alert {
-                    self.show_alert = false
-                } else {
+                if !self.popups.any_visible() {
                     return Ok(UiEvent::Exit);
                 }
+
+                self.popups.hide()
             }
             KeyCode::Char('c') => return Ok(UiEvent::ClearMessages),
             KeyCode::Char(' ') => return Ok(UiEvent::ToggleRunningState),
-            KeyCode::Left | KeyCode::Char('h') => {
-                self.is_port_selector_focused = !self.is_port_selector_focused
-            }
-            KeyCode::Right | KeyCode::Char('l') => {
-                self.is_port_selector_focused = !self.is_port_selector_focused
-            }
-            KeyCode::Down | KeyCode::Char('j') => {
-                if self.is_port_selector_focused {
-                    self.port_selector.next()
-                } else {
-                    self.script_selector.next()
-                }
-            }
-            KeyCode::Up | KeyCode::Char('k') => {
-                if self.is_port_selector_focused {
-                    self.port_selector.previous()
-                } else {
-                    self.script_selector.previous()
-                }
-            }
+            KeyCode::Left | KeyCode::Char('h') => self.selectors.previous_selector(),
+            KeyCode::Right | KeyCode::Char('l') => self.selectors.next_selector(),
+            KeyCode::Down | KeyCode::Char('j') => self.selectors.next_item(),
+            KeyCode::Up | KeyCode::Char('k') => self.selectors.previous_item(),
             KeyCode::Enter => {
-                if self.is_port_selector_focused {
-                    if self.port_selector.selected().is_some() {
-                        self.port_selector.confirm_selection();
-                        return Ok(UiEvent::Connect(self.port_selector.selected().unwrap()));
+                if let Some(selection) = self.selectors.select() {
+                    match selection.selector {
+                        Selector::Port => return Ok(UiEvent::Connect(selection.index)),
+                        Selector::Script => {
+                            self.cached_script = None;
+                            return Ok(UiEvent::LoadScript(selection.index));
+                        }
                     }
-                } else if self.script_selector.selected().is_some() {
-                    self.script_selector.confirm_selection();
-                    return Ok(UiEvent::LoadScript(
-                        self.script_selector.selected().unwrap(),
-                    ));
                 }
             }
             _ => {}
@@ -198,85 +169,84 @@ impl Ui {
             .split(sections[0]);
 
         let has_script_dir = self.script_dir.as_ref().is_some_and(|dir| dir.is_dir());
-
         let port_selector_section = if has_script_dir {
             top_sections[0]
         } else {
             sections[0]
         };
 
-        self.port_selector.render(
+        self.selectors.render(
             f,
             port_selector_section,
-            "˧ ports ꜔",
+            Selector::Port,
+            crate::title!("ports"),
             app.ports(),
-            self.is_port_selector_focused,
         );
 
         if has_script_dir {
-            let script_dir = self.script_dir.as_ref().unwrap().to_string_lossy();
-
-            self.script_selector.render(
+            self.selectors.render(
                 f,
                 top_sections[1],
-                &format!("˧ {script_dir} ꜔"),
+                Selector::Script,
+                &crate::title!("{}", self.script_dir.as_ref().unwrap().to_string_lossy()),
                 &self.script_names,
-                !self.is_port_selector_focused,
             )
         }
 
         let selected_port_name = match app.selected_port() {
-            Some(name) => format!("˧ port : {name} ꜔"),
+            Some(name) => crate::title!("port : {}", name),
             None => "".to_owned(),
         };
 
         let selected_script_name = match app.selected_script() {
-            Some(name) => format!("˧ script : {name} ꜔"),
+            Some(name) => crate::title!("script : {}", name),
             None => "".to_owned(),
         };
 
         let running_state = if app.running() {
-            "˧ active ꜔"
+            crate::title!("active")
         } else {
-            "˧ paused ꜔"
+            crate::title!("paused")
         };
 
-        crate::widgets::midi::render_midi_messages(
+        widgets::midi::render_messages(
             f,
             &format!("{running_state}─{selected_port_name}─{selected_script_name}"),
             app.messages(),
             sections[1],
         );
 
-        if self.show_api {
-            crate::widgets::text::render_code_popup(f, "˧ API ꜔", API);
+        self.popups.render(f, Popup::Api, crate::title!("api"), API);
+        self.popups
+            .render(f, Popup::Docs, crate::title!("docs"), DOCS);
+        self.popups
+            .render(f, Popup::Usage, crate::title!("usage"), USAGE);
+        self.popups.render(
+            f,
+            Popup::Alert,
+            crate::title!("alert!"),
+            self.alert_message.as_ref().unwrap_or(&"".to_owned()),
+        );
+
+        if !self.popups.is_visible(Popup::Script) {
+            self.popups
+                .render(f, Popup::Script, crate::title!(""), "No script loaded");
+            return;
         }
 
-        if self.show_docs {
-            crate::widgets::text::render_code_popup(f, "˧ docs ꜔", DOCS);
-        }
-
-        if self.show_script {
-            let text = app
-                .loaded_script_path()
-                .and_then(|path| std::fs::read_to_string(path).ok())
-                .unwrap_or_else(|| "No script loaded".to_owned());
-
-            crate::widgets::text::render_code_popup(
-                f,
-                &format!("˧ {selected_script_name} ꜔"),
-                &text,
+        if self.cached_script.is_none() {
+            self.cached_script = Some(
+                app.loaded_script_path()
+                    .and_then(|path| std::fs::read_to_string(path).ok())
+                    .unwrap_or_else(|| "No script loaded".to_owned()),
             );
         }
 
-        if self.show_usage {
-            crate::widgets::text::render_usage_popup(f, USAGE);
-        }
-
-        if self.show_alert {
-            if let Some(ref msg) = self.alert_message {
-                crate::widgets::text::render_alert_popup(f, msg);
-            }
-        }
+        self.popups.render(
+            f,
+            Popup::Script,
+            &selected_script_name,
+            self.cached_script.as_ref().unwrap(),
+        );
     }
 }

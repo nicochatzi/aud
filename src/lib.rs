@@ -1,9 +1,9 @@
 pub mod audio;
 pub mod commands;
-pub mod file;
+pub mod files;
 pub mod lua;
 pub mod midi;
-pub mod widgets;
+pub mod ui;
 
 pub mod terminal {
     use crossterm::{
@@ -49,7 +49,7 @@ pub mod terminal {
             // so we need to specifically filter out panics originating from
             // the file that triggers the panic
             if let Some(location) = panic.location() {
-                if location.file() == "src/commands/midimon/lua.rs" {
+                if location.file() == "src/lua/engine.rs" {
                     return;
                 }
             }
@@ -174,8 +174,8 @@ pub mod logger {
                 }
             })
             .level(log::LevelFilter::Trace)
-            // Disable logs for `mio`
             .level_for("mio", log::LevelFilter::Off)
+            .level_for("notify", log::LevelFilter::Off)
             .chain(fern::log_file(file.as_ref())?)
             .apply()?;
 

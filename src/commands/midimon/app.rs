@@ -1,5 +1,6 @@
 use super::lua::*;
 use crate::{
+    files,
     lua::{traits::api::*, LuaEngineHandle},
     midi::MidiMessageString,
 };
@@ -28,7 +29,7 @@ pub struct App {
     messages: Vec<MidiMessageString>,
 
     script_path: Option<PathBuf>,
-    file_events: Option<Receiver<notify::Result<notify::Event>>>,
+    file_watcher: Option<files::FsWatcher>,
 }
 
 impl Default for App {
@@ -49,7 +50,7 @@ impl Default for App {
             alert_message: None,
             messages: vec![],
             script_path: None,
-            file_events: None,
+            file_watcher: None,
         }
     }
 }
@@ -168,7 +169,7 @@ impl App {
             chunk: std::fs::read_to_string(script_path)?,
         };
 
-        self.file_events = crate::file::watch(script_path).ok();
+        self.file_watcher = files::FsWatcher::run(script_path).ok();
 
         if let Err(e) = self.host_tx.try_send(event) {
             log::error!("failed to send load script event : {e}");
@@ -210,24 +211,26 @@ impl App {
         Ok(true)
     }
 
-    pub fn process_file_events(&mut self) -> anyhow::Result<()> {
-        let Some(ref file_events) = self.file_events else {
-            return Ok(());
+    pub fn process_file_events(&mut self) -> anyhow::Result<bool> {
+        let Some(ref watcher) = self.file_watcher else {
+            return Ok(false);
         };
 
         // consume all the events without blocking
-        let events: Vec<_> = file_events.try_iter().collect();
+        let events: Vec<_> = watcher.events().try_iter().collect();
         for event in events {
             if self.has_file_changed(event) {
                 if let Some(script) = self.script_path.clone() {
+                    log::trace!("Loadded script has changed on filesystem");
                     self.load_script(script)?;
+                    return Ok(true);
                 }
 
                 break;
             }
         }
 
-        Ok(())
+        Ok(false)
     }
 
     fn has_file_changed(&mut self, event: notify::Result<notify::Event>) -> bool {

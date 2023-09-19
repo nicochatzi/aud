@@ -60,11 +60,19 @@ impl crate::app::Base for App {
     }
 }
 
-pub fn run(terminal: &mut Terminal<impl Backend>, opts: Options) -> anyhow::Result<()> {
-    if let Some(log_file) = opts.log {
+pub fn run_headles(opts: Options) -> anyhow::Result<()> {
+    if let Some(log_file) = opts.log.or(crate::files::log()) {
+        crate::logger::start("new_cmd", log_file)?;
+    }
+
+    Ok(())
+}
+
+pub fn run_with_tui(terminal: &mut Terminal<impl Backend>, opts: Options) -> anyhow::Result<()> {
+    if let Some(log_file) = opts.log.or(crate::files::log()) {
         crate::logger::start("new_cmd", log_file)?;
     }
 
     let mut app = App::default();
-    crate::app::run(terminal, &mut app, opts.fps)
+    crate::app::run(terminal, &mut app, opts.fps.max(1.))
 }

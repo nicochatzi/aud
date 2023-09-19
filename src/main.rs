@@ -1,8 +1,13 @@
+use aud::commands::*;
 use clap::{CommandFactory, Parser, Subcommand};
 
 #[derive(Debug, Parser)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
+    /// Disable the terminal UI, headless mode
+    #[arg(long)]
+    headless: bool,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -43,6 +48,24 @@ impl Completions {
     }
 }
 
+fn run_with_tui(args: Cli) -> anyhow::Result<()> {
+    aud::terminal::with_terminal(move |term| match args.command {
+        Commands::Midimon(opts) => midimon::run_with_tui(term, opts),
+        Commands::Derlink(opts) => derlink::run_with_tui(term, opts),
+        Commands::Auscope(opts) => auscope::run_with_tui(term, opts),
+        Commands::Completions(_) => Ok(()),
+    })
+}
+
+fn run_headless(args: Cli) -> anyhow::Result<()> {
+    match args.command {
+        Commands::Midimon(opts) => midimon::run_headless(opts),
+        Commands::Derlink(opts) => derlink::run_headless(opts),
+        Commands::Auscope(opts) => auscope::run_headless(opts),
+        Commands::Completions(_) => Ok(()),
+    }
+}
+
 fn main() -> anyhow::Result<()> {
     let args = Cli::parse();
 
@@ -50,12 +73,11 @@ fn main() -> anyhow::Result<()> {
         return c.generate();
     }
 
-    let app_result = aud::terminal::with_terminal(move |term| match args.command {
-        Commands::Midimon(opts) => aud::commands::midimon::run(term, opts),
-        Commands::Derlink(opts) => aud::commands::derlink::run(term, opts),
-        Commands::Auscope(opts) => aud::commands::auscope::run(term, opts),
-        _ => Ok(()),
-    });
+    let app_result = if args.headless {
+        run_headless(args)
+    } else {
+        run_with_tui(args)
+    };
 
     if let Err(e) = app_result {
         if aud::logger::is_active() {

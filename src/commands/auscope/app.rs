@@ -1,24 +1,9 @@
-use crate::widgets::OwnedList;
 use cpal::traits::*;
 use crossbeam::channel::{Receiver, Sender};
-use crossterm::event::KeyCode;
-use ratatui::prelude::*;
-
-const USAGE: &str = r#"
-         ? : display help
-   <SPACE> : pause / resume
-   <UP>, k : scroll up
- <DOWN>, j : scroll down
-     Enter : confirm selection
-  <ESC>, q : quit or hide help
-     <C-c> : force quit
-"#;
 
 pub struct App {
-    device_names: OwnedList<String>,
+    device_names: Vec<String>,
     selection: Option<String>,
-    is_running: bool,
-    show_usage: bool,
     audio_buffer: Vec<Vec<f32>>,
     sender: Sender<Vec<Vec<f32>>>,
     receiver: Receiver<Vec<Vec<f32>>>,
@@ -32,40 +17,42 @@ impl Default for App {
         let host = cpal::default_host();
 
         Self {
-            device_names: OwnedList::default(),
+            device_names: vec![],
             selection: None,
             sender,
             receiver,
             host,
             stream: None,
             audio_buffer: vec![],
-            is_running: true,
-            show_usage: false,
         }
     }
 }
 
 impl App {
+    pub fn device_names(&self) -> &[String] {
+        self.device_names.as_slice()
+    }
+
     pub fn update_device_list(&mut self) -> anyhow::Result<()> {
-        self.device_names = OwnedList::with_items(
-            self.host
-                .input_devices()?
-                .map(|x| x.name().unwrap())
-                .collect(),
-        );
+        self.device_names = self
+            .host
+            .input_devices()?
+            .map(|x| x.name().unwrap())
+            .collect();
 
         Ok(())
     }
 
-    pub fn connect(&mut self) -> anyhow::Result<()> {
+    pub fn audio_mut(&mut self) -> &mut Vec<Vec<f32>> {
+        &mut self.audio_buffer
+    }
+
+    pub fn connect_to_audio_input(&mut self, device_index: usize) -> anyhow::Result<()> {
         let mut input_devices = self.host.input_devices()?;
-        let Some(selected_index) = self.device_names.list.selected() else {
-            anyhow::bail!("");
-        };
 
         let Some(device) = input_devices.find(|x| {
             x.name()
-                .map(|y| y == self.device_names.items[selected_index])
+                .map(|y| y == self.device_names[device_index])
                 .unwrap_or(false)
         }) else {
             anyhow::bail!("");
@@ -85,14 +72,8 @@ impl App {
 
         Ok(())
     }
-}
 
-impl crate::app::Base for App {
-    fn update(&mut self) -> anyhow::Result<crate::app::Flow> {
-        if !self.is_running {
-            return Ok(crate::app::Flow::Loop);
-        }
-
+    pub fn fetch_audio(&mut self) {
         while let Ok(mut channel_data) = self.receiver.try_recv() {
             if channel_data.len() < self.audio_buffer.len() {
                 self.audio_buffer
@@ -108,64 +89,6 @@ impl crate::app::Base for App {
             for (old_buf, new_buf) in self.audio_buffer.iter_mut().zip(channel_data.iter_mut()) {
                 old_buf.append(new_buf);
             }
-        }
-
-        Ok(crate::app::Flow::Continue)
-    }
-
-    fn on_keypress(&mut self, key: crossterm::event::KeyEvent) -> anyhow::Result<crate::app::Flow> {
-        match key.code {
-            KeyCode::Char('?') => self.show_usage = !self.show_usage,
-            KeyCode::Char('q') | KeyCode::Esc => {
-                if self.show_usage {
-                    self.show_usage = false;
-                } else {
-                    return Ok(crate::app::Flow::Exit);
-                }
-            }
-            KeyCode::Char(' ') => self.is_running = !self.is_running,
-            KeyCode::Down | KeyCode::Char('j') => self.device_names.list.next(),
-            KeyCode::Up | KeyCode::Char('k') => self.device_names.list.previous(),
-            KeyCode::Enter => {
-                if self.device_names.list.selected().is_some() {
-                    self.device_names.list.confirm_selection();
-                    self.is_running = true;
-                    for buf in &mut self.audio_buffer {
-                        buf.clear();
-                    }
-                    self.connect()?;
-                }
-            }
-            _ => {}
-        }
-
-        Ok(crate::app::Flow::Continue)
-    }
-
-    fn render(&mut self, f: &mut Frame<impl Backend>) {
-        let sections = Layout::default()
-            .direction(Direction::Horizontal)
-            .margin(1)
-            .constraints([Constraint::Min(32), Constraint::Percentage(90)].as_ref())
-            .split(f.size());
-
-        self.device_names
-            .render_selector(f, sections[0], "˧ devices ꜔", false);
-
-        let selected_device_name = match self.selection.clone() {
-            Some(name) => format!("˧ {name} ꜔"),
-            None => "".to_owned(),
-        };
-
-        crate::widgets::scope::render(
-            f,
-            sections[1],
-            &selected_device_name,
-            &mut self.audio_buffer,
-        );
-
-        if self.show_usage {
-            crate::widgets::text::render_usage_popup(f, USAGE);
         }
     }
 }

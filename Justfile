@@ -2,7 +2,7 @@ _help:
 	@just --list --unsorted
 
 # lint, build, install and tape
-all: audit (install './out') tape render
+all: audit (install '~/.aud/bin') tape render
 
 # format, lint and check deps - requires `cargo-deny`
 audit:
@@ -18,6 +18,10 @@ build:
 # run in release - requires `cargo-limit`
 run CMD:
 	cargo lrun --release -- {{CMD}}
+
+# run all tests - requires `cargo-nextest`
+test:
+	cargo nextest run
 
 # run a command every time source files change - requires `cargo-watch`
 dev CMD='just b':
@@ -47,7 +51,7 @@ render:
 	done
 	
 # tail a log file - request `bat`
-log FILE='out/aud.log':
+log FILE='~/.aud/log/aud.log':
 	# log highlighting is available but yaml looks nicer
 	tail -n5 -f {{FILE}} | bat --paging=never -l=yaml --style=plain
 
@@ -60,7 +64,7 @@ new_cmd NAME:
 
 # run-once setup your development environment for this project
 setup: (_setup_packages)
-	cargo install cargo-deny cargo-watch
+	cargo install cargo-deny cargo-watch cargo-nextest
 	echo "#!/bin/sh\n\n"\
 	"just audit\n"\
 	> .git/hooks/pre-push
@@ -78,6 +82,7 @@ _setup_packages:
 _setup_packages:
 	brew install parallel vhs pkg-config lua
 
+alias t := test
 alias i := install
 alias b := build
 alias d := dev

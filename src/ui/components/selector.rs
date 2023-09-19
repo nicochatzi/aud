@@ -1,28 +1,36 @@
+use ratatui::{
+    prelude::*,
+    widgets::{Block, Borders, List, ListItem, ListState},
+};
 use std::borrow::Cow;
 
-use ratatui::prelude::*;
-use ratatui::widgets::{Block, Borders, List, ListItem, ListState};
-
-/// List that does not own the data
-/// it's listing. It's up to the
-/// consumer to provide the range
-/// and a view of the elements
-/// when it's time to render.
+/// Component that can cycles through elements
+/// while retaining a selected index.
+/// It does not own the data it will render,
+/// so when rendering it is up to the caller to
+/// ensure the coherency between the number of
+/// elements this component can select and
+/// the number of elements to render in it.
+///
+/// This choice makes the component agnostic
+/// of the actual data, i.e. it does not own it.
+/// This is because the actual data may be owned
+/// by another entity.
 #[derive(Default)]
-pub struct ListView {
+pub struct Selector {
     state: ListState,
     selection: Option<usize>,
     len: usize,
 }
 
-impl ListView {
+impl Selector {
     pub fn with_len(len: usize) -> Self {
         let mut state = ListState::default();
         state.select(len.ge(&1).then_some(0));
 
         Self {
+            selection: state.selected(),
             state,
-            selection: None,
             len,
         }
     }
@@ -82,11 +90,9 @@ impl ListView {
     }
 
     pub fn selected(&self) -> Option<usize> {
-        self.state.selected()
+        self.selection
     }
-}
 
-impl ListView {
     pub fn render<'a, B, T>(
         &'a mut self,
         f: &mut Frame<B>,
@@ -133,39 +139,31 @@ impl ListView {
     }
 }
 
-/// ListView that couples the data
-/// to the UI widget.
-#[derive(Default)]
-pub struct OwnedList<T> {
-    pub list: ListView,
-    pub items: Vec<T>,
-}
+#[cfg(test)]
+mod test {
+    use super::*;
 
-impl<T> OwnedList<T> {
-    pub fn with_items(items: Vec<T>) -> Self {
-        Self {
-            list: ListView::with_len(items.len()),
-            items,
-        }
-    }
+    #[test]
+    fn can_cycle_through_indices_while_retaining_the_selection() {
+        let mut selector = Selector::with_len(3);
+        assert_eq!(selector.selected().unwrap(), 0);
 
-    pub fn selected_item(&self) -> Option<&T> {
-        self.items.get(self.list.selected()?)
-    }
-}
+        selector.next();
+        assert_eq!(selector.selected().unwrap(), 0);
 
-impl<T> OwnedList<T>
-where
-    for<'a> Cow<'a, str>: From<&'a T>,
-{
-    pub fn render_selector<'a, B: Backend>(
-        &'a mut self,
-        f: &mut Frame<B>,
-        area: Rect,
-        title: &'a str,
-        is_highlighted: bool,
-    ) {
-        self.list
-            .render(f, area, title, &self.items, is_highlighted);
+        selector.next();
+        assert_eq!(selector.selected().unwrap(), 0);
+
+        selector.confirm_selection();
+        assert_eq!(selector.selected().unwrap(), 2);
+
+        selector.previous();
+        assert_eq!(selector.selected().unwrap(), 2);
+
+        selector.previous();
+        assert_eq!(selector.selected().unwrap(), 2);
+
+        selector.confirm_selection();
+        assert_eq!(selector.selected().unwrap(), 0);
     }
 }

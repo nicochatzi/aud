@@ -3,7 +3,7 @@
 -- Write to the `aud` log file
 function log(message) end
 
--- Connect to the specified MIDI device
+-- Connect to the specified audio device
 function connect(device_name) end
 
 -- Send an alert to `aud`
@@ -19,4 +19,3 @@ function resume() end
 
 -- Request to stop the application
 function stop() end
-

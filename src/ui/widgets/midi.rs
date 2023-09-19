@@ -3,7 +3,7 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem},
 };
 
-pub fn render_midi_messages(
+pub fn render_messages(
     f: &mut Frame<impl Backend>,
     title: &str,
     messages: &[crate::midi::MidiMessageString],

@@ -4,6 +4,7 @@
         "on_connect",
         "on_discover",
         "on_midi",
+        "on_audio",
         "on_stop",
         "connect",
         "alert",

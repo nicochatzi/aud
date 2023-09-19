@@ -1,15 +1,7 @@
 use ratatui::{prelude::*, widgets::*};
 use syntect::{easy, highlighting, parsing, util};
 
-pub fn render_alert_popup<B: Backend>(f: &mut Frame<B>, text: &str) {
-    render_popup(f, "˧ alert ꜔", text)
-}
-
-pub fn render_usage_popup<B: Backend>(f: &mut Frame<B>, text: &str) {
-    render_popup(f, "˧ usage ꜔", text)
-}
-
-pub fn render_code_popup<B: Backend>(f: &mut Frame<B>, title: &str, code_text: &str) {
+pub fn render_code<B: Backend>(f: &mut Frame<B>, title: &str, code_text: &str) {
     // TODO: Load these once at the start of your program
     let ps = parsing::SyntaxSet::load_defaults_newlines();
     let ts = highlighting::ThemeSet::load_defaults();
@@ -25,7 +17,7 @@ pub fn render_code_popup<B: Backend>(f: &mut Frame<B>, title: &str, code_text: &
     );
 }
 
-pub fn render_popup<B: Backend>(f: &mut Frame<B>, title: &str, text: &str) {
+pub fn render_text<B: Backend>(f: &mut Frame<B>, title: &str, text: &str) {
     let lines: Vec<_> = text.split('\n').filter(|l| !l.is_empty()).collect();
     let num_lines = lines.len();
     let max_width = lines.iter().fold(0, |max, line| line.len().max(max));

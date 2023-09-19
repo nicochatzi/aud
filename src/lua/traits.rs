@@ -22,7 +22,7 @@ pub mod hooks {
     }
 
     pub trait AudioHookProviding {
-        fn on_audio(&self, device_name: &str, data: Vec<Vec<f32>>) -> anyhow::Result<()>;
+        fn on_audio(&self, device_name: &str, data: &[Vec<f32>]) -> anyhow::Result<()>;
     }
 
     impl TraceHookProviding for LuaRuntime {
@@ -67,7 +67,7 @@ pub mod hooks {
     }
 
     impl AudioHookProviding for LuaRuntime {
-        fn on_audio(&self, device_name: &str, data: Vec<Vec<f32>>) -> anyhow::Result<()> {
+        fn on_audio(&self, device_name: &str, data: &[Vec<f32>]) -> anyhow::Result<()> {
             match self.has_script() {
                 true => self.call("on_audio", (device_name, data)),
                 false => Ok(()),

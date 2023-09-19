@@ -1,9 +1,4 @@
-use crossterm::event::KeyCode;
-use ratatui::prelude::*;
-
 pub struct App {
-    pub show_usage: bool,
-
     link: rusty_link::AblLink,
     session_state: rusty_link::SessionState,
     quantum: f64,
@@ -12,7 +7,6 @@ pub struct App {
 impl Default for App {
     fn default() -> Self {
         Self {
-            show_usage: false,
             link: rusty_link::AblLink::new(120.),
             session_state: rusty_link::SessionState::new(),
             quantum: 4.,
@@ -93,49 +87,5 @@ impl App {
                 self.quantum(),
             );
         }
-    }
-}
-
-impl crate::app::Base for App {
-    fn update(&mut self) -> anyhow::Result<crate::app::Flow> {
-        self.capture_session_state();
-        Ok(crate::app::Flow::Continue)
-    }
-
-    fn on_keypress(&mut self, key: crossterm::event::KeyEvent) -> anyhow::Result<crate::app::Flow> {
-        match key.code {
-            KeyCode::Char('?') => self.show_usage = !self.show_usage,
-            KeyCode::Char('q') | KeyCode::Esc => {
-                if self.show_usage {
-                    self.show_usage = false
-                } else {
-                    self.stop();
-                    return Ok(crate::app::Flow::Exit);
-                }
-            }
-            KeyCode::Char('a') => self.enable(!self.is_enabled()),
-            KeyCode::Char('k') => {
-                self.set_session_tempo(self.tempo() + 1.0);
-                self.commit_session_state();
-            }
-            KeyCode::Char('j') => {
-                self.set_session_tempo(self.tempo() - 1.0);
-                self.commit_session_state();
-            }
-            KeyCode::Char('l') => self.set_quantum(self.quantum() + 1.),
-            KeyCode::Char('h') => self.set_quantum(self.quantum() - 1.),
-            KeyCode::Char('s') => self.enable_start_stop_sync(!self.is_start_stop_sync_enabled()),
-            KeyCode::Char(' ') => {
-                self.toggle_session_is_playing();
-                self.commit_session_state();
-            }
-            _ => (),
-        }
-
-        Ok(crate::app::Flow::Continue)
-    }
-
-    fn render(&mut self, f: &mut Frame<impl Backend>) {
-        super::ui::render(f, self)
     }
 }
