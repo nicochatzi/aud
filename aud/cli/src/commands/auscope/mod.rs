@@ -14,10 +14,8 @@ struct TerminalApp {
 impl Default for TerminalApp {
     fn default() -> Self {
         let mut app = AuscopeApp::with_audio_receiver(HostedAudioReceiver::default());
-        app.update_device_list().unwrap();
-
         let mut ui = ui::Ui::default();
-        ui.update_device_names(app.device_names());
+        ui.update_device_names(app.devices());
 
         Self { app, ui }
     }
@@ -38,7 +36,8 @@ impl crate::app::Base for TerminalApp {
                     for buf in self.app.audio_mut() {
                         buf.clear();
                     }
-                    self.app.connect_to_audio_input(index)?;
+                    todo!("auscope needs to be able to select channels");
+                    // self.app.connect_to_audio_input(index)?;
                     Ok(crate::app::Flow::Continue)
                 }
                 ui::Selector::Script => Ok(crate::app::Flow::Continue),

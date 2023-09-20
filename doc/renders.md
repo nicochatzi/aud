@@ -1,16 +1,16 @@
 ## `aud`
 
-![aud](../res/aud.gif)
+![aud](../res/out/aud.gif)
 
 ## `auscope`
 
-![auscope](../res/auscope.gif)
+![auscope](../res/out/auscope.gif)
 
 ## `derlink`
 
-![derlink](../res/derlink.gif)
+![derlink](../res/out/derlink.gif)
 
 ## `midimon`
 
-![midimon](../res/midimon.gif)
+![midimon](../res/out/midimon.gif)
 

@@ -1,7 +1,8 @@
 use crate::ui::{components, widgets};
 use aud::{
-    apps::auscope::lua::{API, DOCS},
     files,
+    lua::imported::auscope::{API, DOCS},
+    streams::audio::AudioDevice,
 };
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::prelude::*;
@@ -71,7 +72,7 @@ impl Ui {
         Ok(())
     }
 
-    pub fn update_device_names(&mut self, names: &[impl AsRef<str>]) {
+    pub fn update_device_names(&mut self, names: &[AudioDevice]) {
         if let Some(devices) = self.selectors.get_mut(Selector::Device) {
             *devices = components::Selector::with_len(names.len());
         };
@@ -129,7 +130,10 @@ impl Ui {
             device_selector_section,
             Selector::Device,
             crate::title!("devices"),
-            app.device_names(),
+            &app.devices()
+                .iter()
+                .map(|d| d.name.clone())
+                .collect::<Vec<_>>(),
         );
 
         if has_script_dir {
@@ -154,8 +158,8 @@ impl Ui {
         let selected_device_name = match self.selectors.get(Selector::Device) {
             Some(s) => s
                 .selected()
-                .and_then(|index| app.device_names().get(index))
-                .map(|name| format!("˧ {name} ꜔"))
+                .and_then(|index| app.devices().get(index))
+                .map(|device| format!("˧ {} ꜔", device.name))
                 .unwrap_or_else(|| "".to_owned()),
             None => "".to_owned(),
         };

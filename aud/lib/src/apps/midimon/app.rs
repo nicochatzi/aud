@@ -2,16 +2,10 @@ use super::lua::*;
 use crate::{
     files,
     lua::{traits::api::*, LuaEngineEvent, LuaEngineHandle},
-    streams::midi::MidiData,
+    streams::midi::{HostedMidiReceiver, MidiData, MidiReceiving},
 };
 use crossbeam::channel::{Receiver, Sender};
-use std::{
-    path::{Path, PathBuf},
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
-};
+use std::path::{Path, PathBuf};
 
 pub enum AppEvent {
     Continue,
@@ -21,12 +15,10 @@ pub enum AppEvent {
 }
 
 pub struct App {
-    is_running: Arc<AtomicBool>,
-
     host_tx: Sender<HostEvent>,
     script_rx: Receiver<ScriptEvent>,
     lua_handle: LuaEngineHandle,
-    midi_in: crate::streams::midi::Input<Sender<HostEvent>>,
+    midi_in: HostedMidiReceiver,
 
     port_names: Vec<String>,
     selected_port_name: Option<String>,
@@ -43,15 +35,14 @@ impl Default for App {
     fn default() -> Self {
         let (host_tx, host_rx) = crossbeam::channel::bounded::<HostEvent>(1_000);
         let (script_tx, script_rx) = crossbeam::channel::bounded::<ScriptEvent>(1_000);
-        let midi_in = crate::streams::midi::Input::default();
+        let midi_in = HostedMidiReceiver::default();
 
         Self {
-            is_running: Arc::new(AtomicBool::new(true)),
             host_tx,
             script_rx,
             lua_handle: crate::lua::start_engine(ScriptController::new(script_tx, host_rx)),
             selected_port_name: None,
-            port_names: midi_in.port_names().unwrap(),
+            port_names: midi_in.list_midi_devices().unwrap(),
             midi_in,
             selected_script_name: None,
             alert_message: None,
@@ -64,11 +55,11 @@ impl Default for App {
 
 impl App {
     pub fn running(&self) -> bool {
-        self.is_running.load(Ordering::SeqCst)
+        self.midi_in.is_midi_stream_active()
     }
 
     pub fn set_running(&mut self, should_run: bool) {
-        self.is_running.store(should_run, Ordering::SeqCst)
+        self.midi_in.set_midi_stream_active(should_run)
     }
 
     pub fn ports(&self) -> &[String] {
@@ -104,7 +95,7 @@ impl App {
     }
 
     pub fn update_ports(&mut self) -> anyhow::Result<()> {
-        self.port_names = self.midi_in.port_names()?;
+        self.port_names = self.midi_in.list_midi_devices()?;
         Ok(())
     }
 
@@ -115,27 +106,7 @@ impl App {
 
         {
             let port_name = &self.port_names[port_index];
-            self.midi_in.select(port_name)?;
-            self.midi_in.connect(
-                {
-                    let is_running = self.is_running.clone();
-                    move |timestamp, bytes, sender| {
-                        if !is_running.load(Ordering::SeqCst) {
-                            return;
-                        }
-
-                        let midi = MidiData {
-                            timestamp,
-                            bytes: bytes.into(),
-                        };
-
-                        if let Err(e) = sender.try_send(HostEvent::Midi(midi)) {
-                            log::error!("Failed to push midi message event to runtime : {e}");
-                        }
-                    }
-                },
-                self.host_tx.clone(),
-            )?;
+            self.midi_in.connect_to_midi_device(port_name)?;
             self.selected_port_name = Some(port_name.into());
             let port_name = port_name.to_owned();
             if let Err(e) = self.host_tx.try_send(HostEvent::Connect(port_name)) {
@@ -193,12 +164,24 @@ impl App {
             log::error!("failed to send discovery event : {e}");
         }
 
-        if self.midi_in.is_connected() && self.selected_port_name.is_some() {
+        if self.selected_port_name.is_some() {
             let port = self.selected_port_name.as_ref().unwrap().clone();
             self.connect_to_midi_input(&port)?;
         }
 
         Ok(AppEvent::ScriptLoaded)
+    }
+
+    pub fn process_midi_messaages(&mut self) {
+        let Ok(messages) = self.midi_in.try_receive_midi() else {
+            return;
+        };
+
+        for msg in messages {
+            if let Err(e) = self.host_tx.send(HostEvent::Midi(msg)) {
+                log::error!("Failed to send midi to Lua Runtime : {e}");
+            }
+        }
     }
 
     pub fn process_script_events(&mut self) -> anyhow::Result<AppEvent> {

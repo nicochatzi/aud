@@ -1,4 +1,4 @@
-Output res/aud.gif
+Output res/out/aud.gif
 
 Set FontSize 24
 Set FontFamily "JetBrains Mono"

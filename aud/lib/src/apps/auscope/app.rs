@@ -1,38 +1,50 @@
-use crate::streams::audio::AudioReceiving;
+use crate::streams::audio::*;
 
 pub struct App<AudioReceiver: AudioReceiving> {
-    device_names: Vec<String>,
-    audio_buffer: Vec<Vec<f32>>,
+    audio_buffer: AudioBuffer,
     audio_receiver: AudioReceiver,
+    audio_device: Option<AudioDevice>,
 }
 
 impl<AudioReceiver: AudioReceiving> App<AudioReceiver> {
     pub fn with_audio_receiver(audio_receiver: AudioReceiver) -> Self {
         Self {
-            device_names: vec![],
             audio_buffer: vec![],
             audio_receiver,
+            audio_device: None,
         }
     }
 
-    pub fn device_names(&self) -> &[String] {
-        self.device_names.as_slice()
-    }
-
-    pub fn update_device_list(&mut self) -> anyhow::Result<()> {
-        self.device_names = self.audio_receiver.list_devices()?.to_vec();
-        Ok(())
+    pub fn devices(&self) -> &[AudioDevice] {
+        self.audio_receiver.list_audio_devices()
     }
 
     pub fn audio_mut(&mut self) -> &mut Vec<Vec<f32>> {
         &mut self.audio_buffer
     }
 
-    pub fn connect_to_audio_input(&mut self, device_index: usize) -> anyhow::Result<()> {
-        let device_name = &self.device_names[device_index];
-        self.audio_receiver.select_device(device_name)?;
-        self.audio_receiver.open_stream()?;
+    pub fn update_channel_selection(
+        &mut self,
+        channel_selection: AudioChannelSelection,
+    ) -> anyhow::Result<()> {
+        let Some(ref audio_device) = self.audio_device else {
+            anyhow::bail!("No audio device selected");
+        };
+
+        self.audio_buffer.clear();
+        self.audio_receiver
+            .connect_to_audio_device(audio_device, channel_selection)?;
+        self.audio_device = Some(audio_device.clone());
         Ok(())
+    }
+
+    pub fn connect_to_audio_input(
+        &mut self,
+        audio_device: &AudioDevice,
+        channel_selection: AudioChannelSelection,
+    ) -> anyhow::Result<()> {
+        self.audio_device = Some(audio_device.clone());
+        self.update_channel_selection(channel_selection)
     }
 
     pub fn fetch_audio(&mut self) {

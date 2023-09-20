@@ -3,11 +3,9 @@ use crate::ui::{
     widgets::{self, midi::MidiMessageString},
 };
 use aud::{
-    apps::midimon::{
-        app::App,
-        lua::{API, DOCS},
-    },
+    apps::midimon::app::App,
     files,
+    lua::imported::midimon::{API, DOCS},
 };
 use crossterm::event::KeyCode;
 use ratatui::prelude::*;

@@ -1,158 +1,94 @@
+use super::*;
+use crossbeam::channel::{Receiver, Sender};
 use midir::*;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 
-trait MidiReceiver {
-    fn receive_midi();
+pub struct HostedMidiReceiver {
+    host: MidiInput,
+    sender: Sender<MidiData>,
+    receiver: Receiver<MidiData>,
+    connection: Option<MidiInputConnection<Sender<MidiData>>>,
+    is_running: Arc<AtomicBool>,
 }
 
-pub struct Input<T: 'static> {
-    midi: MidiInput,
-    selected_port: Option<String>,
-    connection: Option<MidiInputConnection<T>>,
-}
-
-impl<T> Default for Input<T> {
+impl Default for HostedMidiReceiver {
     fn default() -> Self {
+        let (sender, receiver) = crossbeam::channel::bounded(1_000);
+
         Self {
-            midi: MidiInput::new("aud-midi-in").unwrap(),
-            selected_port: None,
+            host: MidiInput::new("aud-midi-in").unwrap(),
             connection: None,
+            sender,
+            receiver,
+            is_running: Arc::new(AtomicBool::new(true)),
         }
     }
 }
 
-impl<T: 'static + Send> Input<T> {
-    pub fn ports(&self) -> MidiInputPorts {
-        self.midi.ports()
+impl MidiReceiving for HostedMidiReceiver {
+    fn is_midi_stream_active(&self) -> bool {
+        self.is_running.load(Ordering::SeqCst)
     }
 
-    pub fn select(&mut self, port_name: &str) -> anyhow::Result<()> {
-        self.selected_port = Some(port_name.to_string());
+    fn set_midi_stream_active(&mut self, should_be_active: bool) {
+        self.is_running.store(should_be_active, Ordering::SeqCst)
+    }
+
+    fn connect_to_midi_device(&mut self, device_name: &str) -> anyhow::Result<()> {
+        let ports = self.host.ports();
+        let port = ports
+            .iter()
+            .find(|&port| self.host.port_name(port).as_deref() == Ok(device_name))
+            .ok_or_else(|| anyhow::anyhow!("[ MIDI ] : Cannot find device {device_name}"))?;
+
+        self.connection = Some(self.connect_to_input_device(port)?);
+        log::trace!("[ MIDI ] : connected to {device_name}");
         Ok(())
     }
 
-    pub fn selection(&self) -> Option<String> {
-        self.selected_port.clone()
+    fn list_midi_devices(&self) -> anyhow::Result<Vec<String>> {
+        Ok(self
+            .host
+            .ports()
+            .iter()
+            .map(|port| self.host.port_name(port))
+            .collect::<Result<Vec<_>, _>>()?)
     }
 
-    pub fn port_names(&self) -> anyhow::Result<Vec<String>> {
-        let ports = self.ports();
-        let mut names = Vec::with_capacity(ports.len());
-        for port in &ports {
-            names.push(self.midi.port_name(port)?);
-        }
-        Ok(names)
+    fn try_receive_midi(&mut self) -> anyhow::Result<Vec<MidiData>> {
+        Ok(self.receiver.try_iter().collect())
     }
+}
 
-    pub fn connect<F>(&mut self, callback: F, data: T) -> anyhow::Result<()>
-    where
-        F: FnMut(u64, &[u8], &mut T) + Send + 'static,
-    {
-        let Some(ref port_name) = self.selected_port else {
-            return Ok(());
-        };
+impl HostedMidiReceiver {
+    fn connect_to_input_device(
+        &mut self,
+        port: &MidiInputPort,
+    ) -> anyhow::Result<MidiInputConnection<Sender<MidiData>>> {
+        let callback = {
+            let is_running = self.is_running.clone();
 
-        let ports = self.ports();
-        let Some(port) = ports.iter().find(|port| {
-            if let Ok(name) = self.midi.port_name(port) {
-                &name == port_name
-            } else {
-                false
+            move |timestamp: u64, bytes: &[u8], sender: &mut Sender<MidiData>| {
+                if !is_running.load(Ordering::SeqCst) {
+                    return;
+                }
+
+                let midi = MidiData {
+                    timestamp,
+                    bytes: bytes.into(),
+                };
+
+                if let Err(e) = sender.try_send(midi) {
+                    log::error!("Failed to push midi message event to runtime : {e}");
+                }
             }
-        }) else {
-            anyhow::bail!("Invalid port selection : {port_name}");
         };
 
-        self.connection = Some(
-            MidiInput::new("aud-midi-in")?
-                .connect(port, "aud-read-input", callback, data)
-                .map_err(|e| anyhow::anyhow!(e.to_string()))?,
-        );
-
-        log::trace!("MIDI In connected : {port_name}");
-
-        Ok(())
-    }
-
-    pub fn is_connected(&self) -> bool {
-        self.connection.is_some()
-    }
-}
-
-pub struct Output {
-    midi: MidiOutput,
-    selected_port: Option<String>,
-    connection: Option<MidiOutputConnection>,
-}
-
-impl Default for Output {
-    fn default() -> Self {
-        Self {
-            midi: MidiOutput::new("aud-midi-out").unwrap(),
-            selected_port: None,
-            connection: None,
-        }
-    }
-}
-
-impl Output {
-    pub fn ports(&self) -> MidiOutputPorts {
-        self.midi.ports()
-    }
-
-    pub fn select(&mut self, port_name: &str) -> anyhow::Result<()> {
-        self.selected_port = Some(port_name.to_string());
-        Ok(())
-    }
-
-    pub fn selection(&self) -> Option<String> {
-        self.selected_port.clone()
-    }
-
-    pub fn names(&mut self) -> anyhow::Result<Vec<String>> {
-        let ports = self.ports();
-        let mut names = Vec::with_capacity(ports.len());
-        for port in &ports {
-            names.push(self.midi.port_name(port)?);
-        }
-        Ok(names)
-    }
-
-    pub fn connect(&mut self) -> anyhow::Result<()> {
-        let Some(ref port_name) = self.selected_port else {
-            return Ok(());
-        };
-
-        let ports = self.ports();
-        let Some(port) = ports.iter().find(|port| {
-            if let Ok(name) = self.midi.port_name(port) {
-                &name == port_name
-            } else {
-                false
-            }
-        }) else {
-            anyhow::bail!("Invalid port selection : {port_name}");
-        };
-
-        let Ok(connection) = MidiOutput::new("aud-midi-out")?.connect(port, "aud-midi-out") else {
-            anyhow::bail!("Failed to connect to midi output");
-        };
-
-        log::trace!("MIDI Out connected : {port_name}");
-
-        self.connection = Some(connection);
-
-        Ok(())
-    }
-
-    pub fn is_connected(&self) -> bool {
-        self.connection.is_some()
-    }
-
-    pub fn send(&mut self, bytes: &[u8]) -> anyhow::Result<()> {
-        if let Some(ref mut connection) = &mut self.connection {
-            connection.send(bytes)?;
-        }
-
-        Ok(())
+        MidiInput::new("aud-midi-in")?
+            .connect(port, "aud-midi-in", callback, self.sender.clone())
+            .map_err(|e| anyhow::anyhow!(e.to_string()))
     }
 }

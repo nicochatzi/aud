@@ -1,14 +1,12 @@
 use crate::{
     lua::{
+        imported::midimon::API,
         traits::{api::*, hooks::*},
         LuaRuntime, LuaRuntimeControlling,
     },
     streams::midi::MidiData,
 };
 use crossbeam::channel::{Receiver, Sender};
-
-pub const API: &str = include_str!("../../../../../api/midimon/api.lua");
-pub const DOCS: &str = include_str!("../../../../../api/midimon/docs.lua");
 
 pub enum HostEvent {
     LoadScript { name: String, chunk: String },

@@ -1,11 +1,11 @@
-Output res/midimon.gif
+Output res/out/midimon.gif
 
 Set FontSize 18
 Set FontFamily "JetBrains Mono"
 Set Width 1000
 Set Height 1000
 
-Type "aud midimon --script=./api/examples/midimon"
+Type "aud midimon --script=./lua/examples/midimon"
 Sleep 500ms
 Enter
 Sleep 250ms

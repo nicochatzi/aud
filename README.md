@@ -5,7 +5,7 @@ scriptable <code>aud</code>io terminal tools
 </p>
 
 <p align="center">
-<img src="./res/scope_loop.gif">
+<img src="./res/out/scope_loop.gif">
 </p>
 
 🧱 Requires [Rust](https://www.rust-lang.org/tools/install) and [Just](https://github.com/casey/just)
@@ -22,6 +22,6 @@ scriptable <code>aud</code>io terminal tools
 
 <details>
     <summary>latest list of commands</summary>
-    <img src="./res/aud.gif">
+    <img src="./res/out/aud.gif">
 </details>
 

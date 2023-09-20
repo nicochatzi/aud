@@ -25,7 +25,7 @@ test:
 
 # run a command every time source files change - requires `cargo-watch`
 dev CMD='just b':
-	cargo watch -cs 'reset; {{CMD}}' -i 'res/*' -i 'out/*' -i 'log/*' -i 'api/examples/*'
+	cargo watch -cs 'reset; {{CMD}}' -i 'res/*' -i 'out/*' -i 'lua/api/examples/*'
 
 # install the apps in a directory
 install DIR='./out': build
@@ -36,17 +36,17 @@ install DIR='./out': build
 # create CLI recordings - requires `vhs` & `parallel`
 tape:
 	#!/usr/bin/env bash
-	parallel --ungroup vhs ::: vhs/*
+	parallel --ungroup vhs ::: res/vhs/*
 
 # generate renders
 render: 
 	#!/usr/bin/env bash
 	rm -f doc/renders.md
-	for file in `ls vhs`; do
+	for file in `ls res/vhs`; do
 		f=${file%.*}
 		echo "## \`$f\`"  >> doc/renders.md
 		echo ""  >> doc/renders.md
-		echo "![$f](../res/$f.gif)" >> doc/renders.md
+		echo "![$f](../res/out/$f.gif)" >> doc/renders.md
 		echo ""  >> doc/renders.md
 	done
 	

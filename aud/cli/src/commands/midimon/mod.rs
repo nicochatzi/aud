@@ -23,6 +23,8 @@ impl Default for TerminalApp {
 
 impl crate::app::Base for TerminalApp {
     fn update(&mut self) -> anyhow::Result<crate::app::Flow> {
+        self.app.process_midi_messaages();
+
         if matches!(self.app.process_script_events()?, MidimonEvent::Stopping) {
             return Ok(crate::app::Flow::Exit);
         }

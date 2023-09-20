@@ -1,2 +1,5 @@
+[env]
+AUD_IMPORTED_LUA_RS = "imported_lua.rs"
+
 [build]
 rustc-wrapper = "sccache"

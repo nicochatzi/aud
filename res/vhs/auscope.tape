@@ -1,4 +1,4 @@
-Output res/auscope.gif
+Output res/out/auscope.gif
 
 Set FontSize 24
 Set FontFamily "JetBrains Mono"
