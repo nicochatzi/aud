@@ -1,31 +1,12 @@
-[package]
-name = "aud"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-anyhow = "1.0.75"
-thiserror = "1.0.48"
-crossbeam = { version = "0.8.2", features = ["crossbeam-channel"] }
-crossterm = "0.27.0"
-ratatui = "0.23.0"
-rusty_link = "0.3.6"
-midir = "0.9.1"
-midly = "0.5.3"
-cpal = "0.15.2"
-log = "0.4.20"
-fern = "0.6.2"
-humantime = "2.1.0"
-clap = { version = "4.4.3", features = ["derive"] }
-mlua = { version = "0.9.1", features = ["lua54", "unstable"] }
-notify = "6.1.1"
-clap_complete = "4.4.1"
-colored = "2.0.4"
-syntect = "5.1.0"
-dirs = "5.0.1"
-
-[dev-dependencies]
-strum = { version = "0.25", features = ["derive"] }
+[workspace]
+members = ["aud/cli", "aud/lib"]
+resolver = "2"
 
 [profile.release]
 lto = "fat"
+
+[workspace.dependencies]
+anyhow = "1.0.75"
+thiserror = "1.0.48"
+crossbeam = { version = "0.8.2", features = ["crossbeam-channel"] }
+log = "0.4.20"
