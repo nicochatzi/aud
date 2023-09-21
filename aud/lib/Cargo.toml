@@ -16,7 +16,6 @@ anyhow = { workspace = true }
 thiserror = { workspace = true }
 crossbeam = { workspace = true }
 log = { workspace = true }
-lazy_static = { workspace = true }
 rusty_link = "0.3.6"
 midir = "0.9.1"
 cpal = "0.15.2"

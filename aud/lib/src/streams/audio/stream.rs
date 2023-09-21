@@ -65,7 +65,7 @@ impl AudioProviding for HostedAudioProducer {
 
 pub fn build_audio_device_list(host: &cpal::Host) -> Vec<AudioDevice> {
     match host.input_devices() {
-        Ok(devices) => devices.filter_map(AudioDevice::try_from).collect(),
+        Ok(devices) => devices.filter_map(AudioDevice::try_get_input).collect(),
         Err(err) => {
             log::error!("Failed to get input devices: {}", err);
             vec![]
@@ -74,7 +74,7 @@ pub fn build_audio_device_list(host: &cpal::Host) -> Vec<AudioDevice> {
 }
 
 impl AudioDevice {
-    fn try_from(device: cpal::Device) -> Option<Self> {
+    fn try_get_input(device: cpal::Device) -> Option<Self> {
         let name = device.name().ok()?;
         device.default_input_config().ok().map(|config| Self {
             name,
@@ -103,21 +103,21 @@ impl AudioStream {
 
     fn open(
         sender: Sender<Vec<Vec<f32>>>,
-        device: &cpal::Device,
-        selection: AudioChannelSelection,
+        dev: &cpal::Device,
+        sel: AudioChannelSelection,
     ) -> anyhow::Result<Self> {
-        let config = device.default_input_config()?;
+        let config = dev.default_input_config()?;
         let stream = match config.sample_format() {
-            cpal::SampleFormat::I8 => run::<i8>(sender, device, &config.into(), selection),
-            cpal::SampleFormat::I16 => run::<i16>(sender, device, &config.into(), selection),
-            cpal::SampleFormat::I32 => run::<i32>(sender, device, &config.into(), selection),
-            cpal::SampleFormat::I64 => run::<i64>(sender, device, &config.into(), selection),
-            cpal::SampleFormat::U8 => run::<u8>(sender, device, &config.into(), selection),
-            cpal::SampleFormat::U16 => run::<u16>(sender, device, &config.into(), selection),
-            cpal::SampleFormat::U32 => run::<u32>(sender, device, &config.into(), selection),
-            cpal::SampleFormat::U64 => run::<u64>(sender, device, &config.into(), selection),
-            cpal::SampleFormat::F32 => run::<f32>(sender, device, &config.into(), selection),
-            cpal::SampleFormat::F64 => run::<f64>(sender, device, &config.into(), selection),
+            cpal::SampleFormat::I8 => run::<i8>(sender, dev, &config.into(), sel),
+            cpal::SampleFormat::I16 => run::<i16>(sender, dev, &config.into(), sel),
+            cpal::SampleFormat::I32 => run::<i32>(sender, dev, &config.into(), sel),
+            cpal::SampleFormat::I64 => run::<i64>(sender, dev, &config.into(), sel),
+            cpal::SampleFormat::U8 => run::<u8>(sender, dev, &config.into(), sel),
+            cpal::SampleFormat::U16 => run::<u16>(sender, dev, &config.into(), sel),
+            cpal::SampleFormat::U32 => run::<u32>(sender, dev, &config.into(), sel),
+            cpal::SampleFormat::U64 => run::<u64>(sender, dev, &config.into(), sel),
+            cpal::SampleFormat::F32 => run::<f32>(sender, dev, &config.into(), sel),
+            cpal::SampleFormat::F64 => run::<f64>(sender, dev, &config.into(), sel),
             sample_format => anyhow::bail!("Unsupported sample format '{sample_format}'"),
         }?;
 

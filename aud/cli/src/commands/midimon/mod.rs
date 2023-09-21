@@ -89,7 +89,7 @@ pub struct Options {
     #[arg(long, default_value_t = 30.)]
     fps: f32,
 
-    /// Path to script to load or directory to find scripts
+    /// Path to scripts to view or default script to load
     #[arg(long)]
     script: Option<std::path::PathBuf>,
 }
@@ -111,7 +111,11 @@ pub fn run_with_tui(terminal: &mut Terminal<impl Backend>, opts: Options) -> any
 
     let mut app = TerminalApp::default();
 
-    if let Some(script) = opts.script {
+    let scripts = opts
+        .script
+        .or(crate::locations::lua::examples_for("midimon"));
+
+    if let Some(script) = scripts {
         log::info!("{:#?}", script.canonicalize()?);
         app.ui.update_script_dir(script)?;
     }

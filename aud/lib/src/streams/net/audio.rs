@@ -49,7 +49,7 @@ impl AudioProviding for AudioReceiver {
 
     fn list_audio_devices(&self) -> &[AudioDevice] {
         if let Err(e) = self.sender.send(AudioRequest::GetDevices) {
-            log::error!("Failed to send GetDevices message");
+            log::error!("Failed to send GetDevices message : {e}");
         }
         self.devices.as_slice()
     }

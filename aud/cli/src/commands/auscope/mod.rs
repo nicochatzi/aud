@@ -13,7 +13,7 @@ struct TerminalApp {
 
 impl Default for TerminalApp {
     fn default() -> Self {
-        let mut app = AuscopeApp::with_audio_receiver(HostedAudioProducer::default());
+        let app = AuscopeApp::with_audio_receiver(HostedAudioProducer::default());
         let mut ui = ui::Ui::default();
         ui.update_device_names(app.devices());
 
@@ -31,12 +31,11 @@ impl crate::app::Base for TerminalApp {
         match self.ui.on_keypress(key) {
             ui::UiEvent::Continue => Ok(crate::app::Flow::Continue),
             ui::UiEvent::Exit => Ok(crate::app::Flow::Exit),
-            ui::UiEvent::Select { id, index } => match id {
+            ui::UiEvent::Select { id, .. } => match id {
                 ui::Selector::Device => {
                     for buf in self.app.audio_mut() {
                         buf.clear();
                     }
-                    todo!("auscope needs to be able to select channels");
                     // self.app.connect_to_audio_input(index)?;
                     Ok(crate::app::Flow::Continue)
                 }
@@ -59,7 +58,7 @@ pub struct Options {
     #[arg(long, default_value_t = 30.)]
     fps: f32,
 
-    /// Path to script to load or directory to find scripts
+    /// Path to scripts to view or default script to load
     #[arg(long)]
     script: Option<std::path::PathBuf>,
 }
@@ -81,7 +80,11 @@ pub fn run_with_tui(terminal: &mut Terminal<impl Backend>, opts: Options) -> any
 
     let mut app = TerminalApp::default();
 
-    if let Some(script) = opts.script {
+    let scripts = opts
+        .script
+        .or(crate::locations::lua::examples_for("auscope"));
+
+    if let Some(script) = scripts {
         log::info!("{:#?}", script.canonicalize()?);
         app.ui.update_script_dir(script)?;
     }

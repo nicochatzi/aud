@@ -84,12 +84,7 @@ fn creates_tables_from_sources(modules: &[Module<'_>]) {
                 panic!("Could not read file : {}", source.path.display());
             };
 
-            writeln!(
-                f,
-                "pub static {}: &'static str = r#\"{}\"#;",
-                source.name, content
-            )
-            .unwrap();
+            writeln!(f, "pub const {}: &str = r#\"{}\"#;", source.name, content).unwrap();
             println!("cargo:rerun-if-changed={}", source.path.display());
         }
 

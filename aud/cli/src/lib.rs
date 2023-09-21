@@ -185,14 +185,20 @@ pub mod logger {
 /// Default locations stored in `~/.aud`
 ///
 /// .
-/// ├── api
-/// │  ├── aud/
-/// │  ├── examples/
-/// │  └── midimon/
 /// ├── bin
 /// │  └── aud
-/// └── log
-///    └── aud.log
+/// ├── log
+/// │  └── aud.log
+/// └── lua
+///    ├── api
+///    │  ├── auscope
+///    │  ├── midimon
+///    │  └── sysexio
+///    ├── aud/
+///    └── examples
+///       ├── auscope
+///       ├── midimon
+///       └── sysexio
 ///
 pub mod locations {
     use std::path::PathBuf;
@@ -205,8 +211,8 @@ pub mod locations {
         Some(aud()?.join("bin"))
     }
 
-    pub fn api() -> Option<PathBuf> {
-        Some(aud()?.join("api"))
+    pub fn lua() -> Option<PathBuf> {
+        Some(aud()?.join("lua"))
     }
 
     pub fn log() -> Option<PathBuf> {
@@ -215,5 +221,25 @@ pub mod locations {
 
     pub fn log_file() -> Option<std::path::PathBuf> {
         Some(log()?.join("aud.log"))
+    }
+
+    pub mod lua {
+        use super::*;
+
+        pub fn lib() -> Option<PathBuf> {
+            Some(lua()?.join("examples"))
+        }
+
+        pub fn api() -> Option<PathBuf> {
+            Some(lua()?.join("examples"))
+        }
+
+        pub fn examples() -> Option<PathBuf> {
+            Some(lua()?.join("examples"))
+        }
+
+        pub fn examples_for(cmd: impl AsRef<str>) -> Option<PathBuf> {
+            Some(examples()?.join(cmd.as_ref()))
+        }
     }
 }

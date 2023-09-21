@@ -1,11 +1,9 @@
+#[cfg(feature = "ffi")]
+mod ffi;
 mod stream;
 
 pub use stream::*;
 
-#[cfg(feature = "ffi")]
-mod ffi;
-
-use crossbeam::channel::{Receiver, Sender};
 use serde::{Deserialize, Serialize};
 use std::ops::Range;
 
