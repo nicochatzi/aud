@@ -11,3 +11,4 @@ thiserror = "1.0.48"
 crossbeam = { version = "0.8.2", features = ["crossbeam-channel"] }
 log = "0.4.20"
 lazy_static = "1.4.0"
+fern = "0.6.2"

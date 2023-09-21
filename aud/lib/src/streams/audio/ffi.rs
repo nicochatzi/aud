@@ -1,6 +1,7 @@
 #![allow(non_camel_case_types)]
 
 use super::*;
+use crossbeam::channel::{Receiver, Sender, TryRecvError};
 use std::{
     ffi::{c_char, c_uint, c_void, CStr},
     slice,
@@ -31,6 +32,10 @@ impl Default for FfiAudioReceiver {
 }
 
 impl AudioProviding for FfiAudioReceiver {
+    fn is_connected(&self) -> bool {
+        self.selected_source.is_some()
+    }
+
     fn list_audio_devices(&self) -> &[AudioDevice] {
         self.sources.as_slice()
     }
@@ -56,7 +61,11 @@ impl AudioProviding for FfiAudioReceiver {
     }
 
     fn try_fetch_audio(&mut self) -> anyhow::Result<AudioBuffer> {
-        Ok(self.receiver.try_recv()?)
+        match self.receiver.try_recv() {
+            Ok(audio) => Ok(audio),
+            Err(TryRecvError::Empty) => Ok(vec![]),
+            Err(e) => Err(e.into()),
+        }
     }
 }
 

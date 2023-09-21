@@ -1,4 +1,6 @@
-pub mod stream;
+mod stream;
+
+pub use stream::*;
 
 #[cfg(feature = "ffi")]
 mod ffi;
@@ -20,7 +22,7 @@ pub enum AudioChannelSelection {
     Mono(usize),
     Stereo((usize, usize)),
     Range(Range<usize>),
-    List(Vec<usize>),
+    Multi(Vec<usize>),
 }
 
 impl AudioChannelSelection {
@@ -31,7 +33,7 @@ impl AudioChannelSelection {
             Mono(chan) => vec![chan],
             Stereo((a, b)) => vec![a, b],
             Range(r) => r.into_iter().collect(),
-            List(list) => list,
+            Multi(list) => list,
         }
     }
 
@@ -43,7 +45,7 @@ impl AudioChannelSelection {
             Mono(chan) => chans.contains(chan),
             Stereo((a, b)) => chans.contains(a) && chans.contains(b),
             Range(r) => r.contains(&chans.start) && !r.contains(&chans.end),
-            List(list) => {
+            Multi(list) => {
                 list.iter().all(|chan| chans.contains(chan)) && list.len() < device.channels
             }
         }
@@ -51,6 +53,8 @@ impl AudioChannelSelection {
 }
 
 pub trait AudioProviding {
+    fn is_connected(&self) -> bool;
+
     fn list_audio_devices(&self) -> &[AudioDevice];
 
     fn connect_to_audio_device(
@@ -59,12 +63,31 @@ pub trait AudioProviding {
         channel_selection: AudioChannelSelection,
     ) -> anyhow::Result<()>;
 
+    /// Try to fetch audio from this provider.
+    /// If the backend is in a sane state but
+    /// there is currently no new audio available
+    /// it can simply return `vec![]`
     fn try_fetch_audio(&mut self) -> anyhow::Result<AudioBuffer>;
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+    fn mono_channels_can_be_selected() {
+        use AudioChannelSelection::*;
+
+        let dev = AudioDevice {
+            name: String::default(),
+            channels: 1,
+        };
+        assert!(Mono(0).is_valid_for_device(&dev));
+
+        for i in 1..100 {
+            assert!(!Mono(i).is_valid_for_device(&dev));
+        }
+    }
 
     #[test]
     fn channel_selection_cannot_exceed_device_channel_count() {

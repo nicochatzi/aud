@@ -1,6 +1,6 @@
 use super::*;
 use cpal::{traits::*, FromSample, Sample, SizedSample};
-use crossbeam::channel::{Receiver, Sender};
+use crossbeam::channel::{Receiver, Sender, TryRecvError};
 
 pub struct HostedAudioProducer {
     host: cpal::Host,
@@ -12,7 +12,7 @@ pub struct HostedAudioProducer {
 
 impl Default for HostedAudioProducer {
     fn default() -> Self {
-        let (sender, receiver) = crossbeam::channel::bounded(100);
+        let (sender, receiver) = crossbeam::channel::bounded(16);
         let host = cpal::default_host();
 
         Self {
@@ -26,13 +26,17 @@ impl Default for HostedAudioProducer {
 }
 
 impl AudioProviding for HostedAudioProducer {
+    fn is_connected(&self) -> bool {
+        self.stream.is_open()
+    }
+
     fn connect_to_audio_device(
         &mut self,
         audio_device: &AudioDevice,
         channel_selection: AudioChannelSelection,
     ) -> anyhow::Result<()> {
-        if channel_selection.is_valid_for_device(audio_device) {
-            log::error!("Invalid selection : {channel_selection:#?} for : {audio_device:#?}");
+        if !channel_selection.is_valid_for_device(audio_device) {
+            log::error!("Invalid selection : {channel_selection:?} for : {audio_device:#?}");
             return Ok(());
         }
 
@@ -51,7 +55,11 @@ impl AudioProviding for HostedAudioProducer {
     }
 
     fn try_fetch_audio(&mut self) -> anyhow::Result<AudioBuffer> {
-        Ok(self.receiver.try_recv()?)
+        match self.receiver.try_recv() {
+            Ok(audio) => Ok(audio),
+            Err(TryRecvError::Empty) => Ok(vec![]),
+            Err(e) => Err(e.into()),
+        }
     }
 }
 
@@ -89,6 +97,10 @@ impl Drop for AudioStream {
 }
 
 impl AudioStream {
+    fn is_open(&self) -> bool {
+        self.stream.is_some()
+    }
+
     fn open(
         sender: Sender<Vec<Vec<f32>>>,
         device: &cpal::Device,
@@ -142,7 +154,7 @@ where
         }
 
         if let Err(e) = sender.try_send(buffer) {
-            log::error!("failed to push audio: {e}");
+            log::error!("failed to push audio out of CPAL: {e}");
         }
     };
 

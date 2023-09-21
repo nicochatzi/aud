@@ -1,6 +1,6 @@
 mod ui;
 
-use aud::streams::audio::stream::HostedAudioProducer;
+use aud::streams::audio::HostedAudioProducer;
 use ratatui::prelude::*;
 use std::path::PathBuf;
 

@@ -13,9 +13,9 @@ anyhow = { workspace = true }
 thiserror = { workspace = true }
 crossbeam = { workspace = true }
 log = { workspace = true }
+fern = { workspace = true }
 crossterm = "0.27.0"
 ratatui = "0.23.0"
-fern = "0.6.2"
 humantime = "2.1.0"
 clap = { version = "4.4.3", features = ["derive"] }
 clap_complete = "4.4.1"

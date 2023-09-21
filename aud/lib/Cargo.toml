@@ -26,6 +26,7 @@ serde = { version = "1.0.188", features = ["derive"], optional = true }
 bincode = { version = "1.3.3", optional = true }
 
 [dev-dependencies]
+fern = { workspace = true }
 mockall = "0.11.4"
 test-log = "0.2.12"
 env_logger = "0.10.0"

@@ -8,26 +8,29 @@ use crossbeam::channel::{Receiver, Sender};
 /// This struct will resend requests and parse
 /// responses over some socket connection, e.g. UDP.
 ///
-/// It should be paired with an `net::AudioTransimtter`
+/// It should be paired with an `net::AudioTransmitter`
 ///
 pub struct AudioReceiver {
     devices: Vec<AudioDevice>,
     sender: Sender<AudioRequest>,
     receiver: Receiver<AudioResponse>,
+    has_connected: bool,
     _handle: SocketCommunicator,
 }
 
 impl AudioReceiver {
-    pub fn with_address<Socket: SocketInterface + 'static>(
-        sockets: Sockets<Socket>,
-    ) -> anyhow::Result<Self> {
-        let (request_tx, request_rx) = crossbeam::channel::bounded(100);
-        let (response_tx, response_rx) = crossbeam::channel::bounded(100);
+    pub fn with_address<Socket>(sockets: Sockets<Socket>) -> anyhow::Result<Self>
+    where
+        Socket: SocketInterface + 'static,
+    {
+        let (request_tx, request_rx) = crossbeam::channel::bounded(8);
+        let (response_tx, response_rx) = crossbeam::channel::bounded(16);
 
         Ok(Self {
             devices: vec![],
             sender: request_tx,
             receiver: response_rx,
+            has_connected: false,
             _handle: SocketCommunicator::launch(
                 sockets,
                 Events {
@@ -40,7 +43,14 @@ impl AudioReceiver {
 }
 
 impl AudioProviding for AudioReceiver {
+    fn is_connected(&self) -> bool {
+        self.has_connected
+    }
+
     fn list_audio_devices(&self) -> &[AudioDevice] {
+        if let Err(e) = self.sender.send(AudioRequest::GetDevices) {
+            log::error!("Failed to send GetDevices message");
+        }
         self.devices.as_slice()
     }
 
@@ -49,6 +59,7 @@ impl AudioProviding for AudioReceiver {
         audio_device: &AudioDevice,
         channel_selection: AudioChannelSelection,
     ) -> anyhow::Result<()> {
+        self.has_connected = false;
         self.sender.send(AudioRequest::Connect {
             device: audio_device.clone(),
             channels: channel_selection.clone(),
@@ -61,8 +72,11 @@ impl AudioProviding for AudioReceiver {
 
         while let Ok(event) = self.receiver.try_recv() {
             match event {
-                AudioResponse::Audio(mut buffers) => audio.append(&mut buffers),
-                AudioResponse::Devices(devices) => self.devices = devices,
+                AudioResponse::Devices(mut devices) => self.devices = std::mem::take(&mut devices),
+                AudioResponse::Audio(mut buffers) => {
+                    self.has_connected = true;
+                    audio.append(&mut buffers)
+                }
             }
         }
 
@@ -73,22 +87,25 @@ impl AudioProviding for AudioReceiver {
 /// Counterpart to `AudioReceiver`
 ///
 /// This takes an `AudioProvider`
-/// and managing transimitting
+/// and managing transmitting
 /// its data over a socket.
-pub struct AudioTransimtter<AudioProvider: AudioProviding> {
+pub struct AudioTransmitter<AudioProvider: AudioProviding> {
     audio_provider: AudioProvider,
     requests: Receiver<AudioRequest>,
     responses: Sender<AudioResponse>,
     _handle: SocketCommunicator,
 }
 
-impl<AudioProvider: AudioProviding> AudioTransimtter<AudioProvider> {
-    pub fn new<Socket: SocketInterface + 'static>(
+impl<AudioProvider: AudioProviding> AudioTransmitter<AudioProvider> {
+    pub fn new<Socket>(
         sockets: Sockets<Socket>,
         audio_provider: AudioProvider,
-    ) -> anyhow::Result<Self> {
-        let (response_tx, response_rx) = crossbeam::channel::bounded::<AudioResponse>(100);
-        let (request_tx, request_rx) = crossbeam::channel::bounded::<AudioRequest>(100);
+    ) -> anyhow::Result<Self>
+    where
+        Socket: SocketInterface + 'static,
+    {
+        let (response_tx, response_rx) = crossbeam::channel::bounded::<AudioResponse>(16);
+        let (request_tx, request_rx) = crossbeam::channel::bounded::<AudioRequest>(8);
 
         Ok(Self {
             audio_provider,
@@ -102,6 +119,10 @@ impl<AudioProvider: AudioProviding> AudioTransimtter<AudioProvider> {
                 },
             ),
         })
+    }
+
+    pub fn is_audio_connected(&self) -> bool {
+        self.audio_provider.is_connected()
     }
 
     pub fn process_requests(&mut self) -> anyhow::Result<()> {
@@ -121,6 +142,15 @@ impl<AudioProvider: AudioProviding> AudioTransimtter<AudioProvider> {
 
     pub fn try_send_audio(&mut self) -> anyhow::Result<()> {
         let audio = self.audio_provider.try_fetch_audio()?;
-        Ok(self.responses.try_send(AudioResponse::Audio(audio))?)
+
+        if audio.is_empty() {
+            return Ok(());
+        }
+
+        if let Err(e) = self.responses.try_send(AudioResponse::Audio(audio)) {
+            log::error!("Failed to pass audio response : {e}");
+        }
+
+        Ok(())
     }
 }
