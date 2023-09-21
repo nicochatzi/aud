@@ -3,7 +3,7 @@
 //! the bincode format requirement, instead of using serde::Seralize
 //! traits in our generics.
 
-use crate::streams::audio::*;
+use crate::audio::*;
 use serde::{Deserialize, Serialize};
 
 pub trait BincodeSerialize {
@@ -17,7 +17,7 @@ pub trait BincodeDeserialize: Sized {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum AudioResponse {
     Devices(Vec<AudioDevice>),
-    Audio(AudioBuffer),
+    Audio(AudioPacket),
 }
 
 impl BincodeSerialize for AudioResponse {
@@ -51,4 +51,45 @@ impl BincodeDeserialize for AudioRequest {
     fn deserialized(data: &[u8]) -> Result<Self, bincode::Error> {
         bincode::deserialize(data)
     }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct AudioPacket {
+    pub metadata: AudioPacketMetadata,
+    pub payload: AudioBuffer,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct AudioPacketMetadata {
+    pub index: u64,
+    pub checksum: u32,
+}
+
+impl AudioPacket {
+    pub fn new(index: u64, payload: AudioBuffer) -> Self {
+        Self {
+            metadata: AudioPacketMetadata {
+                index,
+                checksum: checksum(&payload),
+            },
+            payload,
+        }
+    }
+
+    pub fn is_valid(&self) -> bool {
+        self.metadata.checksum == checksum(&self.payload)
+    }
+}
+
+fn checksum(buffer: &AudioBuffer) -> u32 {
+    let mut hasher = crc32fast::Hasher::new();
+    for chan in buffer.iter() {
+        hasher.update(unsafe {
+            std::slice::from_raw_parts(
+                chan.as_ptr() as *const u8,
+                chan.len() * std::mem::size_of::<f32>(),
+            )
+        });
+    }
+    hasher.finalize()
 }

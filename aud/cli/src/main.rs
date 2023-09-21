@@ -1,14 +1,10 @@
-use aud_cli::{commands::*, logger, terminal::with_terminal};
+use aud_cli::{cmd::*, logger, terminal::with_terminal};
 use clap::{CommandFactory, Parser, Subcommand};
 use std::io::Write;
 
 #[derive(Debug, Parser)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
-    /// Disable the terminal UI, headless mode
-    #[arg(long)]
-    headless: bool,
-
     #[command(subcommand)]
     command: Commands,
 }
@@ -49,35 +45,6 @@ impl Completions {
     }
 }
 
-fn run_with_tui(args: Cli) -> anyhow::Result<()> {
-    with_terminal(move |term| match args.command {
-        Commands::Midimon(opts) => midimon::run_with_tui(term, opts),
-        Commands::Derlink(opts) => derlink::run_with_tui(term, opts),
-        Commands::Auscope(opts) => auscope::run_with_tui(term, opts),
-        Commands::Completions(_) => Ok(()),
-    })
-}
-
-fn run_headless(args: Cli) -> anyhow::Result<()> {
-    match args.command {
-        Commands::Midimon(opts) => midimon::run_headless(opts),
-        Commands::Derlink(opts) => derlink::run_headless(opts),
-        Commands::Auscope(opts) => auscope::run_headless(opts),
-        Commands::Completions(_) => Ok(()),
-    }
-}
-
-fn handle_app_result(result: anyhow::Result<()>) {
-    if let Err(e) = result {
-        if logger::is_active() {
-            log::error!("{e}");
-        } else {
-            use colored::*;
-            eprintln!("{} {}", "Error:".red().bold(), format!("{e}").bold());
-        }
-    }
-}
-
 fn main() -> anyhow::Result<()> {
     let args = Cli::parse();
 
@@ -85,13 +52,21 @@ fn main() -> anyhow::Result<()> {
         return c.generate();
     }
 
-    let app_result = if args.headless {
-        run_headless(args)
-    } else {
-        run_with_tui(args)
-    };
+    let app_result = with_terminal(move |term| match args.command {
+        Commands::Midimon(opts) => midimon::run(term, opts),
+        Commands::Derlink(opts) => derlink::run(term, opts),
+        Commands::Auscope(opts) => auscope::run(term, opts),
+        Commands::Completions(_) => Ok(()),
+    });
 
-    handle_app_result(app_result);
+    if let Err(e) = app_result {
+        if logger::is_active() {
+            log::error!("{e}");
+        } else {
+            use colored::*;
+            eprintln!("{} {}", "Error:".red().bold(), format!("{e}").bold());
+        }
+    }
 
     Ok(())
 }

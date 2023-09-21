@@ -1,7 +1,6 @@
-use aud_lib::streams::audio::*;
-use aud_lib::streams::net::*;
-use std::net::{SocketAddr, UdpSocket};
-use std::time::SystemTime;
+use aud_lib::audio::*;
+use aud_lib::comms::*;
+use std::net::UdpSocket;
 
 fn setup_logger() -> Result<(), fern::InitError> {
     fern::Dispatch::new()

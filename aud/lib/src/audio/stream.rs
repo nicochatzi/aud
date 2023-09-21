@@ -1,71 +1,15 @@
 use super::*;
 use cpal::{traits::*, FromSample, Sample, SizedSample};
-use crossbeam::channel::{Receiver, Sender, TryRecvError};
+use crossbeam::channel::Sender;
 
-pub struct HostedAudioProducer {
-    host: cpal::Host,
-    sender: Sender<AudioBuffer>,
-    receiver: Receiver<AudioBuffer>,
-    stream: AudioStream,
-    devices: Vec<AudioDevice>,
-}
-
-impl Default for HostedAudioProducer {
-    fn default() -> Self {
-        let (sender, receiver) = crossbeam::channel::bounded(16);
-        let host = cpal::default_host();
-
-        Self {
-            stream: AudioStream::default(),
-            sender,
-            receiver,
-            devices: build_audio_device_list(&host),
-            host,
-        }
-    }
-}
-
-impl AudioProviding for HostedAudioProducer {
-    fn is_connected(&self) -> bool {
-        self.stream.is_open()
-    }
-
-    fn connect_to_audio_device(
-        &mut self,
-        audio_device: &AudioDevice,
-        channel_selection: AudioChannelSelection,
-    ) -> anyhow::Result<()> {
-        if !channel_selection.is_valid_for_device(audio_device) {
-            log::error!("Invalid selection : {channel_selection:?} for : {audio_device:#?}");
-            return Ok(());
-        }
-
-        self.stream = self
-            .host
-            .input_devices()?
-            .find(|device| device.name().ok().as_deref() == Some(&audio_device.name))
-            .map(|device| AudioStream::open(self.sender.clone(), &device, channel_selection))
-            .ok_or_else(|| anyhow::anyhow!("No audio device selected"))??;
-
-        Ok(())
-    }
-
-    fn list_audio_devices(&self) -> &[AudioDevice] {
-        self.devices.as_slice()
-    }
-
-    fn try_fetch_audio(&mut self) -> anyhow::Result<AudioBuffer> {
-        match self.receiver.try_recv() {
-            Ok(audio) => Ok(audio),
-            Err(TryRecvError::Empty) => Ok(vec![]),
-            Err(e) => Err(e.into()),
-        }
-    }
+pub enum Direction {
+    Input,
+    Output,
 }
 
 pub fn build_audio_device_list(host: &cpal::Host) -> Vec<AudioDevice> {
     match host.input_devices() {
-        Ok(devices) => devices.filter_map(AudioDevice::try_get_input).collect(),
+        Ok(devices) => devices.filter_map(AudioDevice::try_from_input).collect(),
         Err(err) => {
             log::error!("Failed to get input devices: {}", err);
             vec![]
@@ -73,19 +17,32 @@ pub fn build_audio_device_list(host: &cpal::Host) -> Vec<AudioDevice> {
     }
 }
 
-impl AudioDevice {
-    fn try_get_input(device: cpal::Device) -> Option<Self> {
-        let name = device.name().ok()?;
-        device.default_input_config().ok().map(|config| Self {
-            name,
-            channels: config.channels() as usize,
-        })
-    }
+#[derive(Default)]
+pub struct AudioStream {
+    stream: Option<cpal::Stream>,
 }
 
-#[derive(Default)]
-struct AudioStream {
-    stream: Option<cpal::Stream>,
+impl AudioDevice {
+    pub fn try_from_output(device: cpal::Device) -> Option<Self> {
+        Some(Self::try_from_config(
+            device.name().ok()?,
+            device.default_output_config().ok()?,
+        ))
+    }
+
+    pub fn try_from_input(device: cpal::Device) -> Option<Self> {
+        Some(Self::try_from_config(
+            device.name().ok()?,
+            device.default_input_config().ok()?,
+        ))
+    }
+
+    fn try_from_config(name: String, config: cpal::SupportedStreamConfig) -> Self {
+        Self {
+            name,
+            channels: config.channels() as usize,
+        }
+    }
 }
 
 impl Drop for AudioStream {
@@ -97,11 +54,11 @@ impl Drop for AudioStream {
 }
 
 impl AudioStream {
-    fn is_open(&self) -> bool {
+    pub fn is_open(&self) -> bool {
         self.stream.is_some()
     }
 
-    fn open(
+    pub fn open(
         sender: Sender<Vec<Vec<f32>>>,
         dev: &cpal::Device,
         sel: AudioChannelSelection,

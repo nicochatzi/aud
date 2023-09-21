@@ -1,8 +1,7 @@
 mod ui;
 
-use aud::streams::audio::HostedAudioProducer;
+use aud::audio::HostedAudioProducer;
 use ratatui::prelude::*;
-use std::path::PathBuf;
 
 type AuscopeApp = aud::apps::auscope::app::App<HostedAudioProducer>;
 
@@ -63,20 +62,10 @@ pub struct Options {
     script: Option<std::path::PathBuf>,
 }
 
-fn start_logger(log: Option<PathBuf>) -> anyhow::Result<()> {
-    match log.or(crate::locations::log_file()) {
-        Some(log_file) => crate::logger::start("audscope", log_file),
-        None => Ok(()),
+pub fn run(terminal: &mut Terminal<impl Backend>, opts: Options) -> anyhow::Result<()> {
+    if let Some(log_file) = opts.log.or(crate::locations::log_file()) {
+        crate::logger::start("audscope", log_file)?;
     }
-}
-
-pub fn run_headless(opts: Options) -> anyhow::Result<()> {
-    start_logger(opts.log)?;
-    Ok(())
-}
-
-pub fn run_with_tui(terminal: &mut Terminal<impl Backend>, opts: Options) -> anyhow::Result<()> {
-    start_logger(opts.log)?;
 
     let mut app = TerminalApp::default();
 

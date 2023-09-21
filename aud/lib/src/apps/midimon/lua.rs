@@ -4,7 +4,7 @@ use crate::{
         traits::{api::*, hooks::*},
         LuaRuntime, LuaRuntimeControlling,
     },
-    streams::midi::MidiData,
+    midi::MidiData,
 };
 use crossbeam::channel::{Receiver, Sender};
 

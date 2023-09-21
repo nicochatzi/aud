@@ -1,4 +1,4 @@
-use crate::streams::audio::*;
+use crate::audio::*;
 
 pub struct App<AudioReceiver: AudioProviding> {
     audio_buffer: AudioBuffer,

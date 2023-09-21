@@ -1,5 +1,5 @@
 use super::*;
-use crate::streams::audio::*;
+use crate::audio::*;
 use crossbeam::channel::{Receiver, Sender};
 
 /// `AudioProviding` struct that acts as a proxy
@@ -15,6 +15,7 @@ pub struct AudioReceiver {
     sender: Sender<AudioRequest>,
     receiver: Receiver<AudioResponse>,
     has_connected: bool,
+    packets: Vec<AudioPacket>,
     _handle: SocketCommunicator,
 }
 
@@ -31,6 +32,7 @@ impl AudioReceiver {
             sender: request_tx,
             receiver: response_rx,
             has_connected: false,
+            packets: vec![],
             _handle: SocketCommunicator::launch(
                 sockets,
                 Events {
@@ -39,6 +41,48 @@ impl AudioReceiver {
                 },
             ),
         })
+    }
+
+    fn add_audio_packet(&mut self, packet: AudioPacket) {
+        if !packet.is_valid() {
+            self.handle_missing_packet(packet);
+            return;
+        }
+
+        self.insert_sorted(packet);
+    }
+
+    fn handle_missing_packet(&mut self, packet: AudioPacket) {
+        if self
+            .packets
+            .iter()
+            .any(|p| p.metadata.index == packet.metadata.index)
+        {
+            return;
+        }
+
+        if let Some(last_good_packet) = self.packets.last() {
+            self.insert_sorted(AudioPacket {
+                metadata: packet.metadata,
+                payload: last_good_packet.payload.clone(),
+            });
+        }
+    }
+
+    fn insert_sorted(&mut self, packet: AudioPacket) {
+        match self
+            .packets
+            .binary_search_by_key(&packet.metadata.index, |p| p.metadata.index)
+        {
+            Ok(i) => {
+                // replace the packet if it already exists
+                self.packets[i] = packet;
+            }
+            Err(i) => {
+                // insert the packet if it doesn't exist
+                self.packets.insert(i, packet);
+            }
+        }
     }
 }
 
@@ -51,6 +95,7 @@ impl AudioProviding for AudioReceiver {
         if let Err(e) = self.sender.send(AudioRequest::GetDevices) {
             log::error!("Failed to send GetDevices message : {e}");
         }
+
         self.devices.as_slice()
     }
 
@@ -68,31 +113,35 @@ impl AudioProviding for AudioReceiver {
     }
 
     fn try_fetch_audio(&mut self) -> anyhow::Result<AudioBuffer> {
-        let mut audio = vec![];
-
         while let Ok(event) = self.receiver.try_recv() {
             match event {
                 AudioResponse::Devices(mut devices) => self.devices = std::mem::take(&mut devices),
-                AudioResponse::Audio(mut buffers) => {
+                AudioResponse::Audio(packet) => {
                     self.has_connected = true;
-                    audio.append(&mut buffers)
+                    self.add_audio_packet(packet);
                 }
             }
+        }
+
+        let mut audio = AudioBuffer::new();
+        for packet in self.packets.drain(..) {
+            audio.extend(packet.payload);
         }
 
         Ok(audio)
     }
 }
 
-/// Counterpart to `AudioReceiver`
-///
-/// This takes an `AudioProvider`
-/// and managing transmitting
-/// its data over a socket.
-pub struct AudioTransmitter<AudioProvider: AudioProviding> {
+// Counterpart to `AudioReceiver`
+//
+// This takes an `AudioProvider`
+// and managing transmitting
+// its data over a socket.
+pub struct AudioTransmitter<AudioProvider> {
     audio_provider: AudioProvider,
     requests: Receiver<AudioRequest>,
     responses: Sender<AudioResponse>,
+    packet_count: u64,
     _handle: SocketCommunicator,
 }
 
@@ -111,6 +160,7 @@ impl<AudioProvider: AudioProviding> AudioTransmitter<AudioProvider> {
             audio_provider,
             requests: request_rx,
             responses: response_tx,
+            packet_count: 0,
             _handle: SocketCommunicator::launch(
                 sockets,
                 Events {
@@ -147,10 +197,75 @@ impl<AudioProvider: AudioProviding> AudioTransmitter<AudioProvider> {
             return Ok(());
         }
 
-        if let Err(e) = self.responses.try_send(AudioResponse::Audio(audio)) {
+        if let Err(e) = self
+            .responses
+            .try_send(AudioResponse::Audio(AudioPacket::new(
+                self.packet_count,
+                audio,
+            )))
+        {
             log::error!("Failed to pass audio response : {e}");
         }
 
+        self.packet_count += 1;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::comms::test::{MockSocket, ADDR};
+    use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn audio_receiver_can_reorder_packets_after_order_was_mangled() {
+        const NUM_RESPONSES_TO_PARSE: usize = 16;
+        let mut channel_count = 0;
+        let mut packet_count = 4;
+
+        let respond_with_mangled_packet = move |buf: &mut [u8]| {
+            channel_count += 1;
+            packet_count -= 1;
+            if packet_count < 0 {
+                packet_count = 4 as i32;
+            }
+
+            let packet = AudioResponse::Audio(AudioPacket::new(
+                packet_count as u64,
+                vec![vec![0., 0.]; channel_count as usize],
+            ))
+            .serialize()
+            .unwrap();
+
+            buf[..packet.len()].copy_from_slice(&packet);
+            Ok((packet.len(), ADDR))
+        };
+
+        let packet_mangling_socket = MockSocket {
+            on_recv: Some(Arc::new(Mutex::new(respond_with_mangled_packet))),
+            on_send: None,
+        };
+
+        let mut audio_recv = AudioReceiver::with_address(Sockets {
+            socket: packet_mangling_socket,
+            target: ADDR,
+        })
+        .unwrap();
+
+        let mut groups_of_received_audio_buffers = vec![];
+
+        while groups_of_received_audio_buffers.len() < NUM_RESPONSES_TO_PARSE {
+            let buf = audio_recv.try_fetch_audio().unwrap();
+            if buf.is_empty() {
+                continue;
+            }
+            groups_of_received_audio_buffers.push(buf);
+        }
+
+        for (i, audio_buffers) in groups_of_received_audio_buffers.iter().enumerate() {
+            let channel_count = audio_buffers.len();
+            assert_eq!(channel_count, i + 1);
+        }
     }
 }

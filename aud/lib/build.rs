@@ -19,7 +19,7 @@ fn generate_c_header() {
         .with_no_includes()
         .generate()
         .expect("Unable to generate bindings")
-        .write_to_file("inc/aud.h");
+        .write_to_file("include/aud.h");
 }
 
 fn inject_lua_files() {

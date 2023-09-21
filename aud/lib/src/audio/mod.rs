@@ -1,7 +1,9 @@
 #[cfg(feature = "ffi")]
 mod ffi;
+mod input;
 mod stream;
 
+pub use input::*;
 pub use stream::*;
 
 use serde::{Deserialize, Serialize};

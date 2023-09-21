@@ -1,8 +1,7 @@
-use aud_lib::streams::audio::*;
-use aud_lib::streams::net::*;
+use aud_lib::audio::*;
+use aud_lib::comms::*;
 use crossbeam::channel::{Receiver, Sender};
-use std::net::{SocketAddr, UdpSocket};
-use std::time::SystemTime;
+use std::net::UdpSocket;
 
 #[derive(Default, Debug)]
 struct AudioInfo {

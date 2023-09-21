@@ -1,6 +1,6 @@
-use std::net::SocketAddr;
-
 use super::{api::*, SocketInterface};
+use crossbeam::channel::{Receiver, Sender};
+use std::net::SocketAddr;
 
 pub struct Sockets<Socket>
 where
@@ -15,8 +15,8 @@ where
     InputEvent: BincodeSerialize,
     OutputEvent: BincodeDeserialize,
 {
-    pub inputs: crossbeam::channel::Receiver<InputEvent>,
-    pub outputs: crossbeam::channel::Sender<OutputEvent>,
+    pub inputs: Receiver<InputEvent>,
+    pub outputs: Sender<OutputEvent>,
 }
 
 /// This is a black-box socket communicator.
@@ -172,55 +172,8 @@ fn transmit_output_event<OutputEvent>(
 #[cfg(test)]
 mod test {
     use super::*;
-    use std::{
-        io,
-        net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs},
-        sync::{Arc, Mutex},
-    };
-
-    const ADDR: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
-
-    #[derive(Default, Clone)]
-    struct MockSocket {
-        on_send: Option<Arc<Mutex<dyn Fn(&[u8]) -> io::Result<usize>>>>,
-        on_recv: Option<Arc<Mutex<dyn Fn(&mut [u8]) -> io::Result<(usize, SocketAddr)>>>>,
-    }
-
-    unsafe impl Send for MockSocket {}
-    unsafe impl Sync for MockSocket {}
-
-    impl SocketInterface for MockSocket {
-        fn try_to_clone(&self) -> io::Result<Self> {
-            Ok(Self {
-                on_recv: self.on_recv.clone(),
-                on_send: self.on_send.clone(),
-            })
-        }
-
-        fn receive(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
-            let Some(hook) = &self.on_recv else {
-                return Ok((0, ADDR));
-            };
-
-            let hook_fn = hook
-                .try_lock()
-                .map_err(|_| io::Error::new(io::ErrorKind::WouldBlock, "Failed to lock"))?;
-
-            hook_fn(buf)
-        }
-
-        fn transmit<T: ToSocketAddrs>(&self, buf: &[u8], _target: T) -> io::Result<usize> {
-            let Some(hook) = &self.on_send else {
-                return Ok(0);
-            };
-
-            let hook_fn = hook
-                .try_lock()
-                .map_err(|_| io::Error::new(io::ErrorKind::WouldBlock, "Failed to lock"))?;
-
-            hook_fn(buf)
-        }
-    }
+    use crate::comms::test::{MockSocket, ADDR};
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn udp_communicator_terminates_background_tasks_when_dropped() {
@@ -245,7 +198,8 @@ mod test {
         let (_request_tx, request_rx) = crossbeam::channel::unbounded::<AudioRequest>();
         let (response_tx, response_rx) = crossbeam::channel::unbounded::<AudioResponse>();
 
-        let expected_response = AudioResponse::Audio(vec![vec![1., 2.]; 2]);
+        let expected_response =
+            AudioResponse::Audio(AudioPacket::new(0, vec![vec![1., 2., 3.,]; 2]));
 
         let udp_receiver = MockSocket {
             on_recv: Some(Arc::new(Mutex::new({
@@ -285,7 +239,8 @@ mod test {
         let (on_send_tx, on_send_rx) = crossbeam::channel::unbounded();
 
         let expected_request = AudioRequest::GetDevices;
-        let expected_response = AudioResponse::Audio(vec![vec![1., 2.]; 2]);
+        let expected_response =
+            AudioResponse::Audio(AudioPacket::new(0, vec![vec![1., 2., 3.,]; 2]));
 
         let udp_transmitter = MockSocket {
             on_send: Some(Arc::new(Mutex::new({

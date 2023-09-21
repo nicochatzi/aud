@@ -2,7 +2,7 @@ use super::lua::*;
 use crate::{
     files,
     lua::{traits::api::*, LuaEngineEvent, LuaEngineHandle},
-    streams::midi::{HostedMidiReceiver, MidiData, MidiReceiving},
+    midi::{HostedMidiReceiver, MidiData, MidiReceiving},
 };
 use crossbeam::channel::{Receiver, Sender};
 use std::path::{Path, PathBuf};
@@ -173,7 +173,7 @@ impl App {
         Ok(AppEvent::ScriptLoaded)
     }
 
-    pub fn process_midi_messaages(&mut self) {
+    pub fn process_midi_messages(&mut self) {
         for msg in self.midi_in.produce_midi_messages() {
             if let Err(e) = self.host_tx.send(HostEvent::Midi(msg)) {
                 log::error!("Failed to send midi to Lua Runtime : {e}");
@@ -208,7 +208,7 @@ impl App {
         for event in events {
             if self.has_file_changed(event) {
                 if let Some(script) = self.script_path.clone() {
-                    log::trace!("Loadded script has changed on filesystem");
+                    log::trace!("Loaded script has changed on filesystem");
                     return Ok(Some(self.load_script(script)?));
                 }
 

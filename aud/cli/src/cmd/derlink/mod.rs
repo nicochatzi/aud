@@ -68,11 +68,7 @@ pub struct Options {
     fps: f32,
 }
 
-pub fn run_headless(_: Options) -> anyhow::Result<()> {
-    anyhow::bail!("derlink does not yet support headless mode");
-}
-
-pub fn run_with_tui(terminal: &mut Terminal<impl Backend>, opts: Options) -> anyhow::Result<()> {
+pub fn run(terminal: &mut Terminal<impl Backend>, opts: Options) -> anyhow::Result<()> {
     if let Some(log_file) = opts.log.or(crate::locations::log_file()) {
         crate::logger::start("derlink", log_file)?;
     }

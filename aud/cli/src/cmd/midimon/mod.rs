@@ -2,7 +2,6 @@ mod ui;
 
 use crate::ui::widgets::midi::MidiMessageString;
 use ratatui::prelude::*;
-use std::path::PathBuf;
 
 type MidimonApp = aud::apps::midimon::app::App;
 type MidimonEvent = aud::apps::midimon::app::AppEvent;
@@ -23,7 +22,7 @@ impl Default for TerminalApp {
 
 impl crate::app::Base for TerminalApp {
     fn update(&mut self) -> anyhow::Result<crate::app::Flow> {
-        self.app.process_midi_messaages();
+        self.app.process_midi_messages();
 
         if matches!(self.app.process_script_events()?, MidimonEvent::Stopping) {
             return Ok(crate::app::Flow::Exit);
@@ -94,20 +93,10 @@ pub struct Options {
     script: Option<std::path::PathBuf>,
 }
 
-fn start_logger(log: Option<PathBuf>) -> anyhow::Result<()> {
-    match log.or(crate::locations::log_file()) {
-        Some(log_file) => crate::logger::start("midimon", log_file),
-        None => Ok(()),
+pub fn run(terminal: &mut Terminal<impl Backend>, opts: Options) -> anyhow::Result<()> {
+    if let Some(log_file) = opts.log.or(crate::locations::log_file()) {
+        crate::logger::start("midimon", log_file)?;
     }
-}
-
-pub fn run_headless(opts: Options) -> anyhow::Result<()> {
-    start_logger(opts.log)?;
-    Ok(())
-}
-
-pub fn run_with_tui(terminal: &mut Terminal<impl Backend>, opts: Options) -> anyhow::Result<()> {
-    start_logger(opts.log)?;
 
     let mut app = TerminalApp::default();
 

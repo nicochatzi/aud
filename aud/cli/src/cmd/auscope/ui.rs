@@ -1,8 +1,8 @@
 use crate::ui::{components, widgets};
 use aud::{
+    audio::AudioDevice,
     files,
     lua::imported::auscope::{API, DOCS},
-    streams::audio::AudioDevice,
 };
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::prelude::*;
