@@ -1,6 +1,6 @@
 [env]
 AUD_IMPORTED_LUA_RS = "imported_lua.rs"
 RUST_LOG = "trace"
-
-[build]
-rustc-wrapper = "sccache"
+#
+# [build]
+# rustc-wrapper = "sccache"
