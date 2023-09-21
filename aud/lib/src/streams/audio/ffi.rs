@@ -30,7 +30,7 @@ impl Default for FfiAudioReceiver {
     }
 }
 
-impl AudioReceiving for FfiAudioReceiver {
+impl AudioProviding for FfiAudioReceiver {
     fn list_audio_devices(&self) -> &[AudioDevice] {
         self.sources.as_slice()
     }
@@ -55,7 +55,7 @@ impl AudioReceiving for FfiAudioReceiver {
         Ok(())
     }
 
-    fn try_receive_audio(&mut self) -> anyhow::Result<AudioBuffer> {
+    fn try_fetch_audio(&mut self) -> anyhow::Result<AudioBuffer> {
         Ok(self.receiver.try_recv()?)
     }
 }

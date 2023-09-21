@@ -181,6 +181,7 @@ pub mod logger {
         Ok(())
     }
 }
+
 /// Default locations stored in `~/.aud`
 ///
 /// .

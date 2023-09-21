@@ -1,10 +1,10 @@
 mod ui;
 
-use aud::streams::audio::stream::HostedAudioReceiver;
+use aud::streams::audio::stream::HostedAudioProducer;
 use ratatui::prelude::*;
 use std::path::PathBuf;
 
-type AuscopeApp = aud::apps::auscope::app::App<HostedAudioReceiver>;
+type AuscopeApp = aud::apps::auscope::app::App<HostedAudioProducer>;
 
 struct TerminalApp {
     app: AuscopeApp,
@@ -13,7 +13,7 @@ struct TerminalApp {
 
 impl Default for TerminalApp {
     fn default() -> Self {
-        let mut app = AuscopeApp::with_audio_receiver(HostedAudioReceiver::default());
+        let mut app = AuscopeApp::with_audio_receiver(HostedAudioProducer::default());
         let mut ui = ui::Ui::default();
         ui.update_device_names(app.devices());
 

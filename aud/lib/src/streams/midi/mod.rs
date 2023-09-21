@@ -13,5 +13,5 @@ pub trait MidiReceiving {
 
     fn list_midi_devices(&self) -> anyhow::Result<Vec<String>>;
     fn connect_to_midi_device(&mut self, device_name: &str) -> anyhow::Result<()>;
-    fn try_receive_midi(&mut self) -> anyhow::Result<Vec<MidiData>>;
+    fn produce_midi_messages(&mut self) -> Vec<MidiData>;
 }

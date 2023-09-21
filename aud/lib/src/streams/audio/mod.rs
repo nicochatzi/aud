@@ -1,23 +1,21 @@
-#[cfg(test)]
-use mockall::{automock, mock, predicate::*};
-
 pub mod stream;
 
-// #[cfg(feature = "ffi")]
+#[cfg(feature = "ffi")]
 mod ffi;
 
 use crossbeam::channel::{Receiver, Sender};
+use serde::{Deserialize, Serialize};
 use std::ops::Range;
 
 pub type AudioBuffer = Vec<Vec<f32>>;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct AudioDevice {
     pub name: String,
     pub channels: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum AudioChannelSelection {
     Mono(usize),
     Stereo((usize, usize)),
@@ -52,8 +50,7 @@ impl AudioChannelSelection {
     }
 }
 
-#[cfg_attr(test, automock)]
-pub trait AudioReceiving {
+pub trait AudioProviding {
     fn list_audio_devices(&self) -> &[AudioDevice];
 
     fn connect_to_audio_device(
@@ -62,7 +59,7 @@ pub trait AudioReceiving {
         channel_selection: AudioChannelSelection,
     ) -> anyhow::Result<()>;
 
-    fn try_receive_audio(&mut self) -> anyhow::Result<AudioBuffer>;
+    fn try_fetch_audio(&mut self) -> anyhow::Result<AudioBuffer>;
 }
 
 #[cfg(test)]

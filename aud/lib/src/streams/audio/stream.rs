@@ -2,7 +2,7 @@ use super::*;
 use cpal::{traits::*, FromSample, Sample, SizedSample};
 use crossbeam::channel::{Receiver, Sender};
 
-pub struct HostedAudioReceiver {
+pub struct HostedAudioProducer {
     host: cpal::Host,
     sender: Sender<AudioBuffer>,
     receiver: Receiver<AudioBuffer>,
@@ -10,7 +10,7 @@ pub struct HostedAudioReceiver {
     devices: Vec<AudioDevice>,
 }
 
-impl Default for HostedAudioReceiver {
+impl Default for HostedAudioProducer {
     fn default() -> Self {
         let (sender, receiver) = crossbeam::channel::bounded(100);
         let host = cpal::default_host();
@@ -25,7 +25,7 @@ impl Default for HostedAudioReceiver {
     }
 }
 
-impl AudioReceiving for HostedAudioReceiver {
+impl AudioProviding for HostedAudioProducer {
     fn connect_to_audio_device(
         &mut self,
         audio_device: &AudioDevice,
@@ -50,7 +50,7 @@ impl AudioReceiving for HostedAudioReceiver {
         self.devices.as_slice()
     }
 
-    fn try_receive_audio(&mut self) -> anyhow::Result<AudioBuffer> {
+    fn try_fetch_audio(&mut self) -> anyhow::Result<AudioBuffer> {
         Ok(self.receiver.try_recv()?)
     }
 }

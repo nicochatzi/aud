@@ -58,8 +58,8 @@ impl MidiReceiving for HostedMidiReceiver {
             .collect::<Result<Vec<_>, _>>()?)
     }
 
-    fn try_receive_midi(&mut self) -> anyhow::Result<Vec<MidiData>> {
-        Ok(self.receiver.try_iter().collect())
+    fn produce_midi_messages(&mut self) -> Vec<MidiData> {
+        self.receiver.try_iter().collect()
     }
 }
 

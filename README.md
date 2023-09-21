@@ -16,12 +16,5 @@ scriptable <code>aud</code>io terminal tools
 
 💻 `just setup`: setup development environment for this project
 
-🎥 [Renders](./doc/renders.md) - some renders aren't 100% representative
-
-📚 [APIs](./api/) for the scriptable commands
-
-<details>
-    <summary>latest list of commands</summary>
-    <img src="./res/out/aud.gif">
-</details>
+📚 [Docs](./doc/readme.md) for all commands
 

@@ -1,12 +1,12 @@
 use crate::streams::audio::*;
 
-pub struct App<AudioReceiver: AudioReceiving> {
+pub struct App<AudioReceiver: AudioProviding> {
     audio_buffer: AudioBuffer,
     audio_receiver: AudioReceiver,
     audio_device: Option<AudioDevice>,
 }
 
-impl<AudioReceiver: AudioReceiving> App<AudioReceiver> {
+impl<AudioReceiver: AudioProviding> App<AudioReceiver> {
     pub fn with_audio_receiver(audio_receiver: AudioReceiver) -> Self {
         Self {
             audio_buffer: vec![],
@@ -48,7 +48,7 @@ impl<AudioReceiver: AudioReceiving> App<AudioReceiver> {
     }
 
     pub fn fetch_audio(&mut self) {
-        while let Ok(mut channel_data) = self.audio_receiver.try_receive_audio() {
+        while let Ok(mut channel_data) = self.audio_receiver.try_fetch_audio() {
             if channel_data.len() < self.audio_buffer.len() {
                 self.audio_buffer
                     .resize(self.audio_buffer.len() - channel_data.len(), vec![]);

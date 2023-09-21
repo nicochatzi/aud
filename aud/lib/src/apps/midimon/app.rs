@@ -109,6 +109,7 @@ impl App {
             self.midi_in.connect_to_midi_device(port_name)?;
             self.selected_port_name = Some(port_name.into());
             let port_name = port_name.to_owned();
+
             if let Err(e) = self.host_tx.try_send(HostEvent::Connect(port_name)) {
                 log::error!("Failed to send device connected event to runtime : {e}");
             }
@@ -173,11 +174,7 @@ impl App {
     }
 
     pub fn process_midi_messaages(&mut self) {
-        let Ok(messages) = self.midi_in.try_receive_midi() else {
-            return;
-        };
-
-        for msg in messages {
+        for msg in self.midi_in.produce_midi_messages() {
             if let Err(e) = self.host_tx.send(HostEvent::Midi(msg)) {
                 log::error!("Failed to send midi to Lua Runtime : {e}");
             }
