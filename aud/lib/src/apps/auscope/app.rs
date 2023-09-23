@@ -9,7 +9,7 @@ pub struct App<AudioReceiver: AudioProviding> {
 impl<AudioReceiver: AudioProviding> App<AudioReceiver> {
     pub fn with_audio_receiver(audio_receiver: AudioReceiver) -> Self {
         Self {
-            audio_buffer: vec![],
+            audio_buffer: AudioBuffer::default(),
             audio_receiver,
             audio_device: None,
         }
@@ -19,7 +19,7 @@ impl<AudioReceiver: AudioProviding> App<AudioReceiver> {
         self.audio_receiver.list_audio_devices()
     }
 
-    pub fn audio_mut(&mut self) -> &mut Vec<Vec<f32>> {
+    pub fn audio_mut(&mut self) -> &mut AudioBuffer {
         &mut self.audio_buffer
     }
 
@@ -31,7 +31,7 @@ impl<AudioReceiver: AudioProviding> App<AudioReceiver> {
             anyhow::bail!("No audio device selected");
         };
 
-        self.audio_buffer.clear();
+        self.audio_buffer.data.clear();
         self.audio_receiver
             .connect_to_audio_device(audio_device, channel_selection)?;
         self.audio_device = Some(audio_device.clone());
@@ -44,25 +44,17 @@ impl<AudioReceiver: AudioProviding> App<AudioReceiver> {
         channel_selection: AudioChannelSelection,
     ) -> anyhow::Result<()> {
         self.audio_device = Some(audio_device.clone());
+        self.audio_buffer.num_channels = channel_selection.count() as u32;
         self.update_channel_selection(channel_selection)
     }
 
-    pub fn fetch_audio(&mut self) {
-        while let Ok(mut channel_data) = self.audio_receiver.try_fetch_audio() {
-            if channel_data.len() < self.audio_buffer.len() {
-                self.audio_buffer
-                    .resize(self.audio_buffer.len() - channel_data.len(), vec![]);
-            }
+    pub fn fetch_audio(&mut self) -> anyhow::Result<()> {
+        self.audio_receiver.process_audio_events()?;
 
-            if channel_data.len() > self.audio_buffer.len() {
-                let num_new_channels = channel_data.len() - self.audio_buffer.len();
-                self.audio_buffer
-                    .append(&mut vec![vec![]; num_new_channels]);
-            }
+        let mut audio = self.audio_receiver.retrieve_audio_buffer();
+        debug_assert_eq!(self.audio_buffer.num_channels, audio.num_channels);
+        self.audio_buffer.data.append(&mut audio.data);
 
-            for (old_buf, new_buf) in self.audio_buffer.iter_mut().zip(channel_data.iter_mut()) {
-                old_buf.append(new_buf);
-            }
-        }
+        Ok(())
     }
 }

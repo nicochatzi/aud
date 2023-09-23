@@ -22,7 +22,7 @@ impl Default for TerminalApp {
 
 impl crate::app::Base for TerminalApp {
     fn update(&mut self) -> anyhow::Result<crate::app::Flow> {
-        self.app.fetch_audio();
+        self.app.fetch_audio()?;
         Ok(crate::app::Flow::Continue)
     }
 
@@ -32,9 +32,6 @@ impl crate::app::Base for TerminalApp {
             ui::UiEvent::Exit => Ok(crate::app::Flow::Exit),
             ui::UiEvent::Select { id, .. } => match id {
                 ui::Selector::Device => {
-                    for buf in self.app.audio_mut() {
-                        buf.clear();
-                    }
                     // self.app.connect_to_audio_input(index)?;
                     Ok(crate::app::Flow::Continue)
                 }

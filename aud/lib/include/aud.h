@@ -1,6 +1,8 @@
 #ifndef AUD_LIB_BINDINGS
 #define AUD_LIB_BINDINGS
 
+#define AudioPacketSequence_NUM_BUFFER_PACKETS 4
+
 typedef struct aud_audio_device_t {
   const char *name;
   unsigned int num_channels;
@@ -36,7 +38,7 @@ void aud_audio_stream_set_sources(void *ctx,
  */
 void aud_audio_stream_push(void *ctx,
                            char *source_name,
-                           const float *deinterleave_data,
+                           const float *interleaved_buffer,
                            unsigned int num_samples,
                            unsigned int num_channels);
 

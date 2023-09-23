@@ -13,6 +13,7 @@ pub struct FfiAudioReceiver {
     sources: Vec<AudioDevice>,
     selected_source: Option<usize>,
     selected_channels: Vec<usize>,
+    audio: AudioBuffer,
     is_active: bool,
 }
 
@@ -26,13 +27,14 @@ impl Default for FfiAudioReceiver {
             sources: vec![],
             selected_source: None,
             selected_channels: vec![],
+            audio: AudioBuffer::default(),
             is_active: false,
         }
     }
 }
 
 impl AudioProviding for FfiAudioReceiver {
-    fn is_connected(&self) -> bool {
+    fn is_accessible(&self) -> bool {
         self.selected_source.is_some()
     }
 
@@ -49,7 +51,6 @@ impl AudioProviding for FfiAudioReceiver {
             log::error!("Invalid selection : {channel_selection:#?} for : {audio_device:#?}");
             return Ok(());
         }
-        self.selected_channels = channel_selection.to_vec();
 
         let Some(i) = self.sources.iter().position(|s| s == audio_device) else {
             anyhow::bail!("Audio device not found : {}", audio_device.name);
@@ -57,15 +58,25 @@ impl AudioProviding for FfiAudioReceiver {
 
         self.is_active = true;
         self.selected_source = Some(i);
+        self.selected_channels = channel_selection.to_vec();
         Ok(())
     }
 
-    fn try_fetch_audio(&mut self) -> anyhow::Result<AudioBuffer> {
+    fn retrieve_audio_buffer(&mut self) -> AudioBuffer {
+        std::mem::take(&mut self.audio)
+    }
+
+    fn process_audio_events(&mut self) -> anyhow::Result<()> {
         match self.receiver.try_recv() {
-            Ok(audio) => Ok(audio),
-            Err(TryRecvError::Empty) => Ok(vec![]),
-            Err(e) => Err(e.into()),
+            Ok(mut audio) => {
+                self.audio.num_channels = audio.num_channels;
+                self.audio.data.append(&mut audio.data)
+            }
+            Err(TryRecvError::Empty) => (),
+            Err(e) => return Err(e.into()),
         }
+
+        Ok(())
     }
 }
 
@@ -111,7 +122,7 @@ pub unsafe extern "C" fn aud_audio_stream_set_sources(
         match CStr::from_ptr(source.name).to_str() {
             Ok(name) => audio.sources.push(AudioDevice {
                 name: name.to_owned(),
-                channels: source.num_channels as usize,
+                num_channels: source.num_channels as usize,
             }),
             Err(e) => log::error!("Failed to add audio source names with error : {e}"),
         }
@@ -127,7 +138,7 @@ pub unsafe extern "C" fn aud_audio_stream_set_sources(
 pub unsafe extern "C" fn aud_audio_stream_push(
     ctx: *mut c_void,
     source_name: *mut c_char,
-    deinterleave_data: *const f32,
+    interleaved_buffer: *const f32,
     num_samples: c_uint,
     num_channels: c_uint,
 ) {
@@ -135,15 +146,12 @@ pub unsafe extern "C" fn aud_audio_stream_push(
         return;
     }
 
-    let num_samples = num_samples as usize;
-    let num_channels = num_channels as usize;
-
-    let audio = &*(ctx as *mut FfiAudioReceiver);
-    if !audio.is_active {
+    let receiver = &*(ctx as *mut FfiAudioReceiver);
+    if !receiver.is_active {
         return;
     }
 
-    let Some(source_index) = audio.selected_source else {
+    let Some(source_index) = receiver.selected_source else {
         return;
     };
 
@@ -155,22 +163,27 @@ pub unsafe extern "C" fn aud_audio_stream_push(
         }
     };
 
-    if audio.sources[source_index].name != source_str {
+    if receiver.sources[source_index].name != source_str {
         return;
     }
 
-    let data = slice::from_raw_parts(deinterleave_data, num_channels * num_samples);
-    let mut buffer = vec![vec![0.; num_samples]; num_channels];
-    for chan in 0..num_channels {
-        if !audio.selected_channels.contains(&chan) {
+    let data = slice::from_raw_parts(interleaved_buffer, (num_channels * num_samples) as usize);
+    let num_requested_channels = receiver.selected_channels.len() as u32;
+    let mut write_chan = 0;
+    let mut buffer = AudioBuffer::new(num_samples, num_requested_channels);
+    for (chan, frame) in data.chunks(num_channels as usize).enumerate() {
+        if !receiver.selected_channels.contains(&chan) {
             continue;
         }
 
-        let channel_data = slice::from_raw_parts(&data[chan], num_samples);
-        buffer[chan][..num_samples].copy_from_slice(&channel_data[..num_samples]);
+        for (sample, value) in frame.iter().enumerate() {
+            buffer.data[write_chan * buffer.num_channels as usize + sample] = *value;
+        }
+
+        write_chan += 1;
     }
 
-    if let Err(e) = audio.sender.try_send(buffer) {
+    if let Err(e) = receiver.sender.try_send(buffer) {
         log::error!("Failed to send the audio buffer received from the FFI : {e}");
     }
 }

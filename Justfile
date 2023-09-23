@@ -21,7 +21,7 @@ run CMD:
 
 # run all tests - requires `cargo-nextest`
 test:
-	cargo nextest run
+	cargo nextest run --all-targets
 
 # run a command every time source files change - requires `cargo-watch`
 dev CMD='just b':

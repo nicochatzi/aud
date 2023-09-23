@@ -1,286 +1,253 @@
-use super::*;
 use crate::audio::*;
-use crossbeam::channel::{Receiver, Sender};
+use serde::{Deserialize, Serialize};
 
-/// `AudioProviding` struct that acts as a proxy
-/// to a remote `AudioProviding` struct.
+impl AudioBuffer {
+    fn checksum(&self) -> u32 {
+        let chans_crc = crc32fast::hash(&self.num_channels.to_le_bytes());
+        let data_crc = crc32fast::hash(unsafe {
+            std::slice::from_raw_parts(
+                self.data.as_ptr() as *const u8,
+                self.data.len() * std::mem::size_of::<f32>(),
+            )
+        });
+        chans_crc.wrapping_add(data_crc)
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct AudioPacket {
+    pub header: AudioPacketHeader,
+    pub buffer: AudioBuffer,
+}
+
+#[derive(Serialize, Deserialize, Default, Debug, Clone, PartialEq)]
+pub struct AudioPacketHeader {
+    pub index: u64,
+    pub checksum: u32,
+}
+
+impl AudioPacket {
+    pub fn new(index: u64, buffer: &impl AsRef<[f32]>, num_channels: u32) -> Self {
+        let buffer = AudioBuffer {
+            data: buffer.as_ref().to_owned(),
+            num_channels,
+        };
+
+        Self {
+            header: AudioPacketHeader {
+                index,
+                checksum: buffer.checksum(),
+            },
+            buffer,
+        }
+    }
+
+    pub fn is_valid(&self) -> bool {
+        self.header.checksum == self.buffer.checksum()
+    }
+}
+
+/// A sequence of audio packets that can reorder
+/// packets and has a simple invalid packet
+/// replacement mechanism.
 ///
-/// This struct will resend requests and parse
-/// responses over some socket connection, e.g. UDP.
-///
-/// It should be paired with an `net::AudioTransmitter`
-///
-pub struct AudioReceiver {
-    devices: Vec<AudioDevice>,
-    sender: Sender<AudioRequest>,
-    receiver: Receiver<AudioResponse>,
-    has_connected: bool,
-    packets: AudioPacketSequence,
-    _handle: SocketCommunicator,
+#[derive(Default, Debug, Clone)]
+pub struct AudioPacketSequence {
+    packets: Vec<AudioPacket>,
 }
 
-impl AudioReceiver {
-    pub fn with_address<Socket>(sockets: Sockets<Socket>) -> anyhow::Result<Self>
-    where
-        Socket: SocketInterface + 'static,
-    {
-        let (request_tx, request_rx) = crossbeam::channel::bounded(8);
-        let (response_tx, response_rx) = crossbeam::channel::bounded(16);
+impl AudioPacketSequence {
+    pub const NUM_BUFFER_PACKETS: usize = 4;
+    const NUM_SAMPLES_PER_PACKET: usize = 256;
 
-        Ok(Self {
-            devices: vec![],
-            sender: request_tx,
-            receiver: response_rx,
-            has_connected: false,
-            packets: AudioPacketSequence::default(),
-            _handle: SocketCommunicator::launch(
-                sockets,
-                Events {
-                    inputs: request_rx,
-                    outputs: response_tx,
-                },
-            ),
-        })
-    }
-}
-
-impl AudioProviding for AudioReceiver {
-    fn is_connected(&self) -> bool {
-        self.has_connected
+    /// Create a sequence given a multi-channel audio buffer
+    /// This can then be used to stream by extracting the packets,
+    /// which is why this struct itself is not serialisable
+    /// while individual packets are.
+    pub fn from_buffer(start_index: u64, buffer: AudioBuffer) -> Self {
+        Self {
+            packets: buffer
+                .data
+                .chunks(Self::NUM_SAMPLES_PER_PACKET)
+                .enumerate()
+                .map(|(i, chunk)| {
+                    AudioPacket::new(start_index + i as u64, &chunk, buffer.num_channels)
+                })
+                .collect(),
+        }
     }
 
-    fn list_audio_devices(&self) -> &[AudioDevice] {
-        if let Err(e) = self.sender.send(AudioRequest::GetDevices) {
-            log::error!("Failed to send GetDevices message : {e}");
+    /// Batch sequence construction by filtered invalid
+    /// packets and sorting the sequence once. If the
+    /// caller implements packet buffering this
+    /// can be used to efficiently create the sequence.
+    pub fn with_packets(mut packets: Vec<AudioPacket>) -> Self {
+        if packets.is_empty() {
+            return Self::default();
         }
 
-        self.devices.as_slice()
+        let num_channels = packets[0].buffer.num_channels;
+        packets.retain(|p| p.is_valid() && p.buffer.num_channels == num_channels);
+
+        let mut seq = Self { packets };
+        seq.sort();
+        seq
     }
 
-    fn connect_to_audio_device(
-        &mut self,
-        audio_device: &AudioDevice,
-        channel_selection: AudioChannelSelection,
-    ) -> anyhow::Result<()> {
-        self.has_connected = false;
-        self.sender.send(AudioRequest::Connect {
-            device: audio_device.clone(),
-            channels: channel_selection.clone(),
-        })?;
-        Ok(())
+    pub fn into_packets(self) -> Vec<AudioPacket> {
+        self.packets
     }
 
-    fn try_fetch_audio(&mut self) -> anyhow::Result<AudioBuffer> {
-        while let Ok(event) = self.receiver.try_recv() {
-            match event {
-                AudioResponse::Devices(mut devices) => self.devices = std::mem::take(&mut devices),
-                AudioResponse::Audio(packet) => {
-                    self.has_connected = true;
-                    self.packets.push(packet);
-                }
-            }
+    pub fn push(&mut self, packet: AudioPacket) {
+        if !packet.is_valid() {
+            log::warn!("invalid packet checksum");
+            return;
         }
 
-        Ok(self.packets.drain())
-    }
-}
+        let receiving_different_channel_count = self
+            .packets
+            .last()
+            .is_some_and(|p| p.buffer.num_channels != packet.buffer.num_channels);
 
-// Counterpart to `AudioReceiver`
-//
-// This takes an `AudioProvider`
-// and managing transmitting
-// its data over a socket.
-pub struct AudioTransmitter<AudioProvider> {
-    audio_provider: AudioProvider,
-    requests: Receiver<AudioRequest>,
-    responses: Sender<AudioResponse>,
-    packet_count: u64,
-    _handle: SocketCommunicator,
-}
-
-impl<AudioProvider: AudioProviding> AudioTransmitter<AudioProvider> {
-    pub fn new<Socket>(
-        sockets: Sockets<Socket>,
-        audio_provider: AudioProvider,
-    ) -> anyhow::Result<Self>
-    where
-        Socket: SocketInterface + 'static,
-    {
-        let (response_tx, response_rx) = crossbeam::channel::bounded::<AudioResponse>(16);
-        let (request_tx, request_rx) = crossbeam::channel::bounded::<AudioRequest>(8);
-
-        Ok(Self {
-            audio_provider,
-            requests: request_rx,
-            responses: response_tx,
-            packet_count: 0,
-            _handle: SocketCommunicator::launch(
-                sockets,
-                Events {
-                    inputs: response_rx,
-                    outputs: request_tx,
-                },
-            ),
-        })
-    }
-
-    pub fn is_audio_connected(&self) -> bool {
-        self.audio_provider.is_connected()
-    }
-
-    pub fn process_requests(&mut self) -> anyhow::Result<()> {
-        while let Ok(request) = self.requests.try_recv() {
-            match request {
-                AudioRequest::GetDevices => self.responses.try_send(AudioResponse::Devices(
-                    self.audio_provider.list_audio_devices().to_vec(),
-                ))?,
-                AudioRequest::Connect { device, channels } => self
-                    .audio_provider
-                    .connect_to_audio_device(&device, channels)?,
-            }
+        if receiving_different_channel_count {
+            self.packets.clear();
+            return;
         }
 
-        Ok(())
+        self.insert_sorted(packet);
     }
 
-    pub fn try_send_audio(&mut self) -> anyhow::Result<()> {
-        let audio = self.audio_provider.try_fetch_audio()?;
+    /// Get the number of channels in each buffer
+    /// has in this sequence.
+    pub fn num_channels(&self) -> u32 {
+        self.packets
+            .first()
+            .map_or(0, |packet| packet.buffer.num_channels)
+    }
 
-        if audio.is_empty() {
-            return Ok(());
-        }
+    /// Fast way to query the total number of
+    /// frames that can be extracted using
+    /// `extract()`.
+    ///
+    /// Note this is the total number of samples
+    /// _per channel per buffer_ for interleaved
+    /// audio
+    pub fn num_available_frames(&self) -> usize {
+        self.packets
+            .iter()
+            .take(Self::NUM_BUFFER_PACKETS.saturating_sub(self.packets.len()))
+            .map(|p| p.buffer.num_frames())
+            .sum()
+    }
 
-        if let Err(e) = self
-            .responses
-            .try_send(AudioResponse::Audio(AudioPacket::new(
-                self.packet_count,
-                audio,
-            )))
+    /// Consumes the entire sequence, returning each
+    /// packet as an individual `AudioBuffer`.
+    ///
+    /// This is used to immediately extract all buffers
+    /// immediately, i.e. without buffering/latency.
+    pub fn consume(&mut self) -> Vec<AudioBuffer> {
+        self.drain(self.packets.len())
+    }
+
+    /// Safe extraction which retains enough buffers internally
+    /// to help maintain packet ordering.
+    ///
+    /// However it will add latency of at most:
+    ///     NUM_BUFFER_PACKETS * SAMPLES_PER_PACKET
+    pub fn extract(&mut self) -> Vec<AudioBuffer> {
+        self.drain(Self::NUM_BUFFER_PACKETS.min(self.packets.len()))
+    }
+
+    fn drain(&mut self, num_packets: usize) -> Vec<AudioBuffer> {
+        self.packets
+            .drain(..num_packets.min(self.packets.len()))
+            .map(|p| p.buffer)
+            .collect()
+    }
+
+    fn sort(&mut self) {
+        self.packets
+            .sort_by(|a, b| a.header.index.cmp(&b.header.index));
+    }
+
+    fn insert_sorted(&mut self, packet: AudioPacket) {
+        match self
+            .packets
+            .binary_search_by(|p| p.header.index.cmp(&packet.header.index))
         {
-            log::error!("Failed to pass audio response : {e}");
+            Ok(i) => self.packets.insert(i, packet), // replace the packet at index if it already exists
+            Err(i) => self.packets.insert(i, packet), // insert the packet at the correct position to maintain order
         }
-
-        self.packet_count += 1;
-        Ok(())
     }
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
-    use crate::comms::test::{MockSocket, ADDR};
-    use std::sync::{Arc, Mutex};
 
     #[test]
-    fn audio_receiver_can_request_devices() {}
+    fn audio_packet_sequence_will_split_a_buffer_into_correct_number_of_packets() {
+        const NUM_EXPECTED_PACKETS: u32 = 16;
+        const NUM_SAMPLES: u32 =
+            AudioPacketSequence::NUM_SAMPLES_PER_PACKET as u32 * NUM_EXPECTED_PACKETS;
+        let packets =
+            AudioPacketSequence::from_buffer(0, AudioBuffer::new(NUM_SAMPLES, 1)).into_packets();
+
+        assert_eq!(packets.len(), NUM_EXPECTED_PACKETS as usize);
+    }
 
     #[test]
-    fn audio_receiver_can_fetch_audio_buffers() {}
+    fn audio_packet_sequence_will_return_a_buffer_per_packet() {
+        let num_channels = 1;
+        let num_fragments_per_buffer = 8;
+        let num_samples = AudioPacketSequence::NUM_SAMPLES_PER_PACKET * num_fragments_per_buffer;
+
+        let expected_buffer = AudioBuffer {
+            data: (0..num_samples * num_channels)
+                .into_iter()
+                .map(|x| x as f32)
+                .collect(),
+            num_channels: num_channels as u32,
+        };
+
+        let packets = AudioPacketSequence::from_buffer(0, expected_buffer.clone()).into_packets();
+        let buffers = AudioPacketSequence::with_packets(packets).consume();
+        assert_eq!(buffers.len(), num_fragments_per_buffer);
+
+        let combined_buffer = AudioBuffer::from_buffers(buffers);
+        assert_eq!(combined_buffer.data.len(), expected_buffer.data.len());
+
+        for (returned, expected) in combined_buffer.data.iter().zip(expected_buffer.data.iter()) {
+            assert_eq!(returned, expected);
+        }
+    }
 
     #[test]
-    fn audio_transmitter_can_send_device_list() {}
+    fn audio_packet_sequence_can_reorder_packets() {
+        const NUM_CHANNELS: usize = 16;
+
+        let packet1 = AudioPacket::new(1, &vec![0.0; NUM_CHANNELS], 1);
+        let packet2 = AudioPacket::new(2, &vec![1.0; NUM_CHANNELS], 1);
+        let packet3 = AudioPacket::new(3, &vec![2.0; NUM_CHANNELS], 1);
+
+        let buffer = AudioPacketSequence::with_packets(vec![packet1, packet3, packet2]).consume();
+
+        assert_eq!(buffer.len(), 3);
+        assert_eq!(buffer[0].data[0], 0.0);
+        assert_eq!(buffer[1].data[0], 1.0);
+        assert_eq!(buffer[2].data[0], 2.0);
+    }
 
     #[test]
-    fn audio_transmitter_can_send_audio() {}
+    fn audio_packet_sequence_handles_invalid_packets() {
+        let packet1 = AudioPacket::new(1, &vec![-1.0; 4], 1);
+        let packet2 = AudioPacket::new(1, &vec![-1.0; 4], 1);
+        let mut packet3 = AudioPacket::new(2, &vec![1.0; 4], 1);
+        packet3.header.checksum = packet3.header.checksum.wrapping_add(1);
 
-    // #[test]
-    // fn audio_receiver_can_reorder_packets_after_order_was_mangled() {
-    //     const NUM_RESPONSES_TO_PARSE: usize = 16;
-    //     let mut channel_count = 0;
-    //     let mut packet_count = 4;
-    //
-    //     let respond_with_mangled_packet = move |buf: &mut [u8]| {
-    //         channel_count += 1;
-    //         packet_count -= 1;
-    //         if packet_count < 0 {
-    //             packet_count = 4 as i32;
-    //         }
-    //
-    //         let packet = AudioResponse::Audio(AudioPacket::new(
-    //             packet_count as u64,
-    //             vec![vec![0., 0.]; channel_count as usize],
-    //         ))
-    //         .serialize()
-    //         .unwrap();
-    //
-    //         buf[..packet.len()].copy_from_slice(&packet);
-    //         Ok((packet.len(), ADDR))
-    //     };
-    //
-    //     let packet_mangling_socket = MockSocket {
-    //         on_recv: Some(Arc::new(Mutex::new(respond_with_mangled_packet))),
-    //         on_send: None,
-    //     };
-    //
-    //     let mut audio_recv = AudioReceiver::with_address(Sockets {
-    //         socket: packet_mangling_socket,
-    //         target: ADDR,
-    //     })
-    //     .unwrap();
-    //
-    //     let mut groups_of_received_audio_buffers = vec![];
-    //
-    //     while groups_of_received_audio_buffers.len() < NUM_RESPONSES_TO_PARSE {
-    //         let buf = audio_recv.try_fetch_audio().unwrap();
-    //         if buf.is_empty() {
-    //             continue;
-    //         }
-    //         groups_of_received_audio_buffers.push(buf);
-    //     }
-    //
-    //     for (i, audio_buffers) in groups_of_received_audio_buffers.iter().enumerate() {
-    //         let channel_count = audio_buffers.len();
-    //         assert_eq!(channel_count, i + 1);
-    //     }
-    // }
-    //
-    // #[test]
-    // fn audio_receiver_will_repeat_a_packet_if_one_is_corrupt() {
-    //     const NUM_RESPONSES_TO_PARSE: usize = 2;
-    //     let mut packet_count = 0;
-    //
-    //     let respond_with_mangled_packet = move |buf: &mut [u8]| {
-    //         let packet_payload = vec![vec![packet_count as f32; 2]; 1];
-    //         let mut packet = AudioPacket::new(packet_count as u64, packet_payload);
-    //
-    //         // Mangle the second packet
-    //         if packet_count == 1 {
-    //             packet.metadata.checksum = packet.metadata.checksum.wrapping_add(100);
-    //         }
-    //
-    //         let response = AudioResponse::Audio(packet).serialize().unwrap();
-    //         packet_count += 1;
-    //
-    //         buf[..response.len()].copy_from_slice(&response);
-    //         Ok((response.len(), ADDR))
-    //     };
-    //
-    //     let packet_mangling_socket = MockSocket {
-    //         on_recv: Some(Arc::new(Mutex::new(respond_with_mangled_packet))),
-    //         on_send: None,
-    //     };
-    //
-    //     let mut audio_recv = AudioReceiver::with_address(Sockets {
-    //         socket: packet_mangling_socket,
-    //         target: ADDR,
-    //     })
-    //     .unwrap();
-    //
-    //     let mut groups_of_received_audio_buffers = vec![];
-    //
-    //     while groups_of_received_audio_buffers.len() < NUM_RESPONSES_TO_PARSE {
-    //         let buf = audio_recv.try_fetch_audio().unwrap();
-    //         if !buf.is_empty() {
-    //             groups_of_received_audio_buffers.push(buf);
-    //         }
-    //     }
-    //
-    //     // Check that the first packet's payload was correctly received
-    //     assert_eq!(groups_of_received_audio_buffers[0][0][0], 0.0);
-    //     assert_eq!(groups_of_received_audio_buffers[0][0][1], 0.0);
-    //
-    //     // Check that the second packet's payload matches the first (because it was mangled and replaced)
-    //     assert_eq!(groups_of_received_audio_buffers[1][0][0], 0.0);
-    //     assert_eq!(groups_of_received_audio_buffers[1][0][1], 0.0);
-    // }
+        let buffers = AudioPacketSequence::with_packets(vec![packet1, packet2, packet3]).consume();
+
+        assert_eq!(buffers.len(), 2);
+        assert!(buffers.iter().all(|b| b.data.iter().all(|x| *x == -1.)));
+    }
 }

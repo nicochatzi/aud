@@ -28,7 +28,7 @@ fn main() -> anyhow::Result<()> {
 
     log::info!("socket opened");
 
-    let mut tx = AudioTransmitter::new(sockets, HostedAudioProducer::default()).unwrap();
+    let mut tx = RemoteAudioTransmitter::new(sockets, HostedAudioProducer::default()).unwrap();
 
     while !tx.is_audio_connected() {
         if let Err(e) = tx.process_requests() {
@@ -39,8 +39,10 @@ fn main() -> anyhow::Result<()> {
     }
 
     log::info!("connected to audio device");
+    tx.purge_audio_cache();
 
-    loop {
+    while tx.is_audio_connected() {
+        tx.process_audio_events().unwrap();
         if let Err(e) = tx.try_send_audio() {
             log::error!("failed to send audio : {e}");
         }

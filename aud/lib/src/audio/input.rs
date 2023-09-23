@@ -8,6 +8,7 @@ pub struct HostedAudioProducer {
     receiver: Receiver<AudioBuffer>,
     stream: AudioStream,
     devices: Vec<AudioDevice>,
+    audio: AudioBuffer,
 }
 
 impl Default for HostedAudioProducer {
@@ -20,13 +21,14 @@ impl Default for HostedAudioProducer {
             sender,
             receiver,
             devices: build_audio_device_list(&host),
+            audio: AudioBuffer::default(),
             host,
         }
     }
 }
 
 impl AudioProviding for HostedAudioProducer {
-    fn is_connected(&self) -> bool {
+    fn is_accessible(&self) -> bool {
         self.stream.is_open()
     }
 
@@ -54,11 +56,20 @@ impl AudioProviding for HostedAudioProducer {
         self.devices.as_slice()
     }
 
-    fn try_fetch_audio(&mut self) -> anyhow::Result<AudioBuffer> {
+    fn retrieve_audio_buffer(&mut self) -> AudioBuffer {
+        std::mem::take(&mut self.audio)
+    }
+
+    fn process_audio_events(&mut self) -> anyhow::Result<()> {
         match self.receiver.try_recv() {
-            Ok(audio) => Ok(audio),
-            Err(TryRecvError::Empty) => Ok(vec![]),
-            Err(e) => Err(e.into()),
+            Ok(mut audio) => {
+                self.audio.num_channels = audio.num_channels;
+                self.audio.data.append(&mut audio.data)
+            }
+            Err(TryRecvError::Empty) => (),
+            Err(e) => return Err(e.into()),
         }
+
+        Ok(())
     }
 }

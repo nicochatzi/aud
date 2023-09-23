@@ -172,8 +172,10 @@ fn transmit_output_event<OutputEvent>(
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::comms::test::{MockSocket, ADDR};
-    use std::sync::{Arc, Mutex};
+    use crate::comms::{
+        test::{MockSocket, ADDR},
+        AudioPacket,
+    };
 
     #[test]
     fn udp_communicator_terminates_background_tasks_when_dropped() {
@@ -198,21 +200,17 @@ mod test {
         let (_request_tx, request_rx) = crossbeam::channel::unbounded::<AudioRequest>();
         let (response_tx, response_rx) = crossbeam::channel::unbounded::<AudioResponse>();
 
-        let expected_response =
-            AudioResponse::Audio(AudioPacket::new(0, vec![vec![1., 2., 3.,]; 2]));
+        let expected_response = AudioResponse::Audio(AudioPacket::new(0, &[1., 2., 3.], 1));
 
-        let udp_receiver = MockSocket {
-            on_recv: Some(Arc::new(Mutex::new({
-                let expected_response = expected_response.clone();
+        let udp_receiver = MockSocket::with_recv_hook({
+            let expected_response = expected_response.clone();
 
-                move |buf: &mut [u8]| {
-                    let response = expected_response.clone().serialize().unwrap();
-                    buf[..response.len()].copy_from_slice(&response);
-                    Ok((response.len(), ADDR))
-                }
-            }))),
-            ..Default::default()
-        };
+            move |buf: &mut [u8]| {
+                let response = expected_response.clone().serialize().unwrap();
+                buf[..response.len()].copy_from_slice(&response);
+                Ok((response.len(), ADDR))
+            }
+        });
 
         let _comms = SocketCommunicator::launch(
             Sockets {
@@ -239,23 +237,19 @@ mod test {
         let (on_send_tx, on_send_rx) = crossbeam::channel::unbounded();
 
         let expected_request = AudioRequest::GetDevices;
-        let expected_response =
-            AudioResponse::Audio(AudioPacket::new(0, vec![vec![1., 2., 3.,]; 2]));
+        let expected_response = AudioResponse::Audio(AudioPacket::new(0, &[1., 2., 3.], 1));
 
-        let udp_transmitter = MockSocket {
-            on_send: Some(Arc::new(Mutex::new({
-                let expected_request = expected_request.clone();
-                let expected_response = expected_response.clone();
+        let udp_transmitter = MockSocket::with_send_hook({
+            let expected_request = expected_request.clone();
+            let expected_response = expected_response.clone();
 
-                move |buf: &[u8]| {
-                    let request = AudioRequest::deserialized(buf).unwrap();
-                    assert_eq!(expected_request, request);
-                    on_send_tx.send(expected_response.clone()).unwrap();
-                    Ok(0)
-                }
-            }))),
-            ..Default::default()
-        };
+            move |buf: &[u8]| {
+                let request = AudioRequest::deserialized(buf).unwrap();
+                assert_eq!(expected_request, request);
+                on_send_tx.send(expected_response.clone()).unwrap();
+                Ok(0)
+            }
+        });
 
         let _comms = SocketCommunicator::launch(
             Sockets {

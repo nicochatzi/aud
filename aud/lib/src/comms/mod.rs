@@ -32,7 +32,7 @@ impl SocketInterface for std::net::UdpSocket {
 }
 
 #[cfg(test)]
-mod test {
+pub(crate) mod test {
     use super::*;
     use std::{
         io,
@@ -50,6 +50,39 @@ mod test {
 
     unsafe impl Send for MockSocket {}
     unsafe impl Sync for MockSocket {}
+
+    impl MockSocket {
+        pub fn with_hooks<S, R>(on_send: S, on_recv: R) -> Self
+        where
+            S: FnMut(&[u8]) -> io::Result<usize> + 'static,
+            R: FnMut(&mut [u8]) -> io::Result<(usize, SocketAddr)> + 'static,
+        {
+            Self {
+                on_send: Some(Arc::new(Mutex::new(on_send))),
+                on_recv: Some(Arc::new(Mutex::new(on_recv))),
+            }
+        }
+
+        pub fn with_send_hook<S>(on_send: S) -> Self
+        where
+            S: FnMut(&[u8]) -> io::Result<usize> + 'static,
+        {
+            Self {
+                on_send: Some(Arc::new(Mutex::new(on_send))),
+                on_recv: None,
+            }
+        }
+
+        pub fn with_recv_hook<R>(on_recv: R) -> Self
+        where
+            R: FnMut(&mut [u8]) -> io::Result<(usize, SocketAddr)> + 'static,
+        {
+            Self {
+                on_send: None,
+                on_recv: Some(Arc::new(Mutex::new(on_recv))),
+            }
+        }
+    }
 
     impl SocketInterface for MockSocket {
         fn try_to_clone(&self) -> io::Result<Self> {

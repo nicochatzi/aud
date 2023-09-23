@@ -40,7 +40,7 @@ impl AudioDevice {
     fn try_from_config(name: String, config: cpal::SupportedStreamConfig) -> Self {
         Self {
             name,
-            channels: config.channels() as usize,
+            num_channels: config.channels() as usize,
         }
     }
 }
@@ -59,7 +59,7 @@ impl AudioStream {
     }
 
     pub fn open(
-        sender: Sender<Vec<Vec<f32>>>,
+        sender: Sender<AudioBuffer>,
         dev: &cpal::Device,
         sel: AudioChannelSelection,
     ) -> anyhow::Result<Self> {
@@ -85,7 +85,7 @@ impl AudioStream {
 }
 
 fn run<T>(
-    sender: Sender<Vec<Vec<f32>>>,
+    sender: Sender<AudioBuffer>,
     device: &cpal::Device,
     config: &cpal::StreamConfig,
     selection: AudioChannelSelection,
@@ -93,21 +93,27 @@ fn run<T>(
 where
     T: SizedSample + FromSample<f32>,
 {
-    let num_channels = config.channels as usize;
+    let total_num_chanels = config.channels as usize;
     let channels = selection.to_vec();
+    let num_requested_channels = channels.len();
 
     let err_handler = move |e| log::error!("an error occurred in audio stream: {e}",);
-    let push_buffer = move |data: &[T]| {
-        let mut buffer = vec![vec![0.; data.len() / num_channels]; num_channels];
+    let push_buffer = move |audio_buffer: &[T]| {
+        let mut write_chan = 0;
+        let num_samples = audio_buffer.len() / total_num_chanels;
+        let mut buffer = AudioBuffer::new(num_samples as u32, num_requested_channels as u32);
 
-        for (chan, frame) in data.chunks(num_channels).enumerate() {
-            if !channels.contains(&chan) {
+        for (read_chan, frame) in audio_buffer.chunks(total_num_chanels).enumerate() {
+            if !channels.contains(&read_chan) {
                 continue;
             }
 
             for (sample, value) in frame.iter().enumerate() {
-                buffer[sample][chan] = value.to_float_sample().to_sample::<f32>();
+                buffer.data[write_chan * buffer.num_channels as usize + sample] =
+                    value.to_float_sample().to_sample::<f32>();
             }
+
+            write_chan += 1;
         }
 
         if let Err(e) = sender.try_send(buffer) {
