@@ -146,7 +146,6 @@ where
     fn try_send_audio(&mut self) -> anyhow::Result<()> {
         let buffer = self.audio_provider.retrieve_audio_buffer();
         for packet in self.sequence.from_buffer(&buffer).into_packets() {
-            log::info!("{packet:?}");
             if let Err(e) = self.responses.try_send(AudioResponse::Audio(packet)) {
                 log::error!("Failed to pass audio response to socket tasks : {e}");
             }
@@ -220,7 +219,7 @@ mod test {
         }
     }
 
-    #[test_log::test]
+    #[test]
     fn receiver_can_request_devices() {
         let expected_device_list = vec![
             AudioDevice {

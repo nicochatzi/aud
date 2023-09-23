@@ -357,6 +357,10 @@ where
 
         let buffer = AudioBuffer::from_buffers(received_buffers);
         let buffer_num_channels = buffer.num_channels as usize;
+        if buffer_num_channels == 0 {
+            return;
+        }
+
         let buffer_num_frames = buffer.data.len() / buffer_num_channels;
 
         for (frame_idx, frame) in audio_buffer.chunks_mut(total_num_channels).enumerate() {

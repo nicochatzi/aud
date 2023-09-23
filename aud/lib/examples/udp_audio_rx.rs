@@ -10,16 +10,8 @@ use std::time::Duration;
 #[derive(Default, Debug)]
 pub struct AudioInfo {
     num_samples: u32,
-    num_channels: u32,
-}
-
-impl From<AudioBuffer> for AudioInfo {
-    fn from(buf: AudioBuffer) -> Self {
-        Self {
-            num_samples: buf.num_frames() as u32,
-            num_channels: buf.num_channels,
-        }
-    }
+    num_buffers: u32,
+    num_silence: usize,
 }
 
 struct LoggingAudioConsumer {
@@ -38,14 +30,22 @@ impl Default for LoggingAudioConsumer {
                     AudioInfo::default(),
                     |stats: AudioInfo, buffer: &AudioBuffer| AudioInfo {
                         num_samples: stats.num_samples + buffer.num_frames() as u32,
-                        num_channels: stats.num_channels + buffer.num_channels as u32,
+                        num_buffers: stats.num_buffers + 1,
+                        num_silence: stats.num_silence
+                            + buffer
+                                .data
+                                .iter()
+                                .all(|s| *s == 0.)
+                                .then_some(1)
+                                .unwrap_or_default(),
                     },
                 );
                 buffers.try_lock().unwrap().clear();
                 log::info!(
-                    "last second : received {} samples, with {} buffers",
+                    "last second : received {} samples, with {} buffers, with {} silence buffers",
                     stats.num_samples,
-                    stats.num_channels
+                    stats.num_buffers,
+                    stats.num_silence,
                 );
                 sleep(Duration::from_millis(1_000));
             }
@@ -60,7 +60,6 @@ impl Default for LoggingAudioConsumer {
 
 impl AudioConsuming for LoggingAudioConsumer {
     fn consume_audio_buffer(&mut self, buffer: AudioBuffer) -> anyhow::Result<()> {
-        log::info!("{buffer:?}");
         let mut buffers = self.buffers.lock().unwrap();
         buffers.push(buffer);
         Ok(())

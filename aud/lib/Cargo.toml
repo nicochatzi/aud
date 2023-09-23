@@ -41,3 +41,7 @@ cbindgen = "0.26.0"
 [[bench]]
 name = "audio_packet_sequence"
 harness = false
+
+[[bench]]
+name = "host_audio_io"
+harness = false
