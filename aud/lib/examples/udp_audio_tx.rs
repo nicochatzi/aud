@@ -1,6 +1,8 @@
 use aud_lib::audio::*;
 use aud_lib::comms::*;
 use std::net::UdpSocket;
+use std::thread::sleep;
+use std::time::Duration;
 
 fn setup_logger() -> Result<(), fern::InitError> {
     fern::Dispatch::new()
@@ -28,24 +30,20 @@ fn main() -> anyhow::Result<()> {
 
     log::info!("socket opened");
 
-    let mut tx = RemoteAudioTransmitter::new(sockets, HostedAudioProducer::default()).unwrap();
+    let mut tx = RemoteAudioTransmitter::new(HostAudioInput::default(), sockets).unwrap();
 
-    while !tx.is_audio_connected() {
-        if let Err(e) = tx.process_requests() {
+    while !tx.is_accessible() {
+        if let Err(e) = tx.process_audio_events() {
             log::error!("failed to process requests : {e}");
         }
 
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        sleep(Duration::from_millis(100));
     }
 
     log::info!("connected to audio device");
-    tx.purge_audio_cache();
 
-    while tx.is_audio_connected() {
+    while tx.is_accessible() {
         tx.process_audio_events().unwrap();
-        if let Err(e) = tx.try_send_audio() {
-            log::error!("failed to send audio : {e}");
-        }
     }
 
     Ok(())

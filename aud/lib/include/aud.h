@@ -17,7 +17,7 @@ typedef struct aud_audio_device_t {
  * stream to any `aud` audio
  * consumer
  */
-void *aud_audio_stream_create(void);
+void *aud_audio_provider_create(void);
 
 /**
  * # Safety
@@ -25,9 +25,9 @@ void *aud_audio_stream_create(void);
  * Not thread-safe, needs to be called from the same
  * thread that calls `create()`
  */
-void aud_audio_stream_set_sources(void *ctx,
-                                  const struct aud_audio_device_t *sources,
-                                  unsigned int num_sources);
+void aud_audio_provider_set_sources(void *ctx,
+                                    const struct aud_audio_device_t *sources,
+                                    unsigned int num_sources);
 
 /**
  * # Safety
@@ -36,18 +36,17 @@ void aud_audio_stream_set_sources(void *ctx,
  *
  * The caller must supply the name of this source
  */
-void aud_audio_stream_push(void *ctx,
-                           char *source_name,
-                           const float *interleaved_buffer,
-                           unsigned int num_samples,
-                           unsigned int num_channels);
+void aud_audio_provider_push(void *ctx,
+                             char *source_name,
+                             const float *interleaved_buffer,
+                             unsigned int num_frames,
+                             unsigned int num_channels);
 
 /**
- * Clean up the Audio Stream
- * instance. Ensure the validity
- * of the pointer, it must have
- * been create by a `create`
+ * Destroy the instance for clean up.
+ *
+ * Ensure the validity of the pointer, it must have been create by a `create`
  */
-void aud_audio_stream_destroy(void *ctx);
+void aud_audio_provider_destroy(void *ctx);
 
 #endif /* AUD_LIB_BINDINGS */

@@ -2,25 +2,27 @@ use super::*;
 use crate::comms::*;
 use crossbeam::channel::{Receiver, Sender};
 
-/// `AudioProviding` struct that acts as a proxy
-/// to a remote `AudioProviding` struct.
+/// `RemoteAudioReceiver` acts as a facade to a remote `AudioProviding` struct,
+/// proxying the audio data to the local `AudioConsumer`.
 ///
-/// This struct will resend requests and parse
-/// responses over some socket connection, e.g. UDP.
-///
-/// It should be paired with an `RemoteAudioTransmitter`
-///
-pub struct RemoteAudioReceiver {
+/// It takes an `AudioConsumer` instance and manages the flow of audio buffers from
+/// the remote provider to the local consumer, handling the necessary communication
+/// and synchronization.
+pub struct RemoteAudioReceiver<AudioConsumer: AudioConsuming> {
     devices: Vec<AudioDevice>,
     sender: Sender<AudioRequest>,
     receiver: Receiver<AudioResponse>,
     has_connected: bool,
     packets: AudioPacketSequence,
+    audio_consumer: AudioConsumer,
     _handle: SocketCommunicator,
 }
 
-impl RemoteAudioReceiver {
-    pub fn with_address<Socket>(sockets: Sockets<Socket>) -> anyhow::Result<Self>
+impl<AudioConsumer: AudioConsuming> RemoteAudioReceiver<AudioConsumer> {
+    pub fn new<Socket>(
+        audio_consumer: AudioConsumer,
+        sockets: Sockets<Socket>,
+    ) -> anyhow::Result<Self>
     where
         Socket: SocketInterface + 'static,
     {
@@ -32,6 +34,7 @@ impl RemoteAudioReceiver {
             sender: request_tx,
             receiver: response_rx,
             has_connected: false,
+            audio_consumer,
             packets: AudioPacketSequence::default(),
             _handle: SocketCommunicator::launch(
                 sockets,
@@ -44,7 +47,7 @@ impl RemoteAudioReceiver {
     }
 }
 
-impl AudioProviding for RemoteAudioReceiver {
+impl<AudioConsumer: AudioConsuming> AudioInterface for RemoteAudioReceiver<AudioConsumer> {
     fn is_accessible(&self) -> bool {
         self.has_connected
     }
@@ -70,10 +73,6 @@ impl AudioProviding for RemoteAudioReceiver {
         Ok(())
     }
 
-    fn retrieve_audio_buffer(&mut self) -> AudioBuffer {
-        AudioBuffer::from_buffers(self.packets.extract())
-    }
-
     fn process_audio_events(&mut self) -> anyhow::Result<()> {
         while let Ok(event) = self.receiver.try_recv() {
             match event {
@@ -88,27 +87,36 @@ impl AudioProviding for RemoteAudioReceiver {
             }
         }
 
+        if self.packets.num_available_frames() != 0 {
+            let buffer = AudioBuffer::from_buffers(self.packets.extract());
+            self.audio_consumer.consume_audio_buffer(buffer)?;
+        }
+
         Ok(())
     }
 }
 
-// Counterpart to `RemoteAudioReceiver`
-//
-// This takes an `AudioProvider`
-// and managing transmitting
-// its data over a socket.
+/// `RemoteAudioTransmitter` acts as a facade to a remote `AudioConsuming` struct,
+/// proxying the audio data from the local `AudioProviding` to the remote consumer.
+///
+/// It takes an `AudioProviding` instance and manages the flow of audio buffers from
+/// the local provider to the remote consumer, handling the necessary communication
+/// and synchronization.
 pub struct RemoteAudioTransmitter<AudioProvider> {
     audio_provider: AudioProvider,
     requests: Receiver<AudioRequest>,
     responses: Sender<AudioResponse>,
-    packet_count: u64,
+    sequence: AudioPacketSequenceBuilder,
     _handle: SocketCommunicator,
 }
 
-impl<AudioProvider: AudioProviding> RemoteAudioTransmitter<AudioProvider> {
+impl<AudioProvider> RemoteAudioTransmitter<AudioProvider>
+where
+    AudioProvider: AudioProviding + AudioInterface,
+{
     pub fn new<Socket>(
-        sockets: Sockets<Socket>,
         audio_provider: AudioProvider,
+        sockets: Sockets<Socket>,
     ) -> anyhow::Result<Self>
     where
         Socket: SocketInterface + 'static,
@@ -120,7 +128,7 @@ impl<AudioProvider: AudioProviding> RemoteAudioTransmitter<AudioProvider> {
             audio_provider,
             requests: request_rx,
             responses: response_tx,
-            packet_count: 0,
+            sequence: AudioPacketSequenceBuilder::default(),
             _handle: SocketCommunicator::launch(
                 sockets,
                 Events {
@@ -131,53 +139,63 @@ impl<AudioProvider: AudioProviding> RemoteAudioTransmitter<AudioProvider> {
         })
     }
 
-    pub fn is_audio_connected(&self) -> bool {
-        self.audio_provider.is_accessible()
-    }
-
-    pub fn process_audio_events(&mut self) -> anyhow::Result<()> {
-        self.audio_provider.process_audio_events()
-    }
-
-    pub fn purge_audio_cache(&mut self) {
+    fn purge_audio_cache(&mut self) {
         let _ = self.audio_provider.retrieve_audio_buffer();
     }
 
-    pub fn process_requests(&mut self) -> anyhow::Result<()> {
-        self.process_audio_events()?;
-        self.process_socket_requests()
-    }
-
-    pub fn try_send_audio(&mut self) -> anyhow::Result<()> {
-        let sequence = AudioPacketSequence::from_buffer(
-            self.packet_count,
-            self.audio_provider.retrieve_audio_buffer(),
-        );
-
-        for packet in sequence.into_packets() {
+    fn try_send_audio(&mut self) -> anyhow::Result<()> {
+        let buffer = self.audio_provider.retrieve_audio_buffer();
+        for packet in self.sequence.from_buffer(&buffer).into_packets() {
+            log::info!("{packet:?}");
             if let Err(e) = self.responses.try_send(AudioResponse::Audio(packet)) {
                 log::error!("Failed to pass audio response to socket tasks : {e}");
             }
-
-            self.packet_count += 1;
         }
-
         Ok(())
     }
 
     fn process_socket_requests(&mut self) -> anyhow::Result<()> {
         while let Ok(request) = self.requests.try_recv() {
             match request {
-                AudioRequest::GetDevices => self.responses.try_send(AudioResponse::Devices(
-                    self.audio_provider.list_audio_devices().to_vec(),
-                ))?,
+                AudioRequest::GetDevices => {
+                    let devices = self.audio_provider.list_audio_devices().to_vec();
+                    self.responses.try_send(AudioResponse::Devices(devices))?
+                }
                 AudioRequest::Connect { device, channels } => self
                     .audio_provider
                     .connect_to_audio_device(&device, channels)?,
             }
         }
-
         Ok(())
+    }
+}
+
+impl<AudioProvider> AudioInterface for RemoteAudioTransmitter<AudioProvider>
+where
+    AudioProvider: AudioProviding + AudioInterface,
+{
+    fn is_accessible(&self) -> bool {
+        self.audio_provider.is_accessible()
+    }
+
+    fn list_audio_devices(&self) -> &[AudioDevice] {
+        self.audio_provider.list_audio_devices()
+    }
+
+    fn connect_to_audio_device(
+        &mut self,
+        audio_device: &AudioDevice,
+        channel_selection: AudioChannelSelection,
+    ) -> anyhow::Result<()> {
+        self.purge_audio_cache();
+        self.audio_provider
+            .connect_to_audio_device(audio_device, channel_selection)
+    }
+
+    fn process_audio_events(&mut self) -> anyhow::Result<()> {
+        self.audio_provider.process_audio_events()?;
+        self.process_socket_requests()?;
+        self.try_send_audio()
     }
 }
 
@@ -186,6 +204,21 @@ mod test {
     use super::*;
     use crate::comms::test::{MockSocket, ADDR};
     use std::sync::{Arc, Mutex};
+
+    #[derive(Default)]
+    struct MockConsumer {
+        on_consume: Option<Box<dyn FnMut(AudioBuffer) -> anyhow::Result<()>>>,
+    }
+
+    impl AudioConsuming for MockConsumer {
+        fn consume_audio_buffer(&mut self, buffer: AudioBuffer) -> anyhow::Result<()> {
+            let Some(hook) = self.on_consume.as_mut() else {
+                return Ok(());
+            };
+
+            hook(buffer)
+        }
+    }
 
     #[test_log::test]
     fn receiver_can_request_devices() {
@@ -238,10 +271,13 @@ mod test {
         let packet_mangling_socket =
             MockSocket::with_hooks(hook_expecting_device_request, hook_sending_device_list);
 
-        let mut audio_recv = RemoteAudioReceiver::with_address(Sockets {
-            socket: packet_mangling_socket,
-            target: ADDR,
-        })
+        let mut audio_recv = RemoteAudioReceiver::new(
+            MockConsumer::default(),
+            Sockets {
+                socket: packet_mangling_socket,
+                target: ADDR,
+            },
+        )
         .unwrap();
 
         assert!(audio_recv.list_audio_devices().is_empty());

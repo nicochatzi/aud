@@ -7,6 +7,7 @@ use std::{
     slice,
 };
 
+#[repr(C)]
 pub struct FfiAudioReceiver {
     sender: Sender<AudioBuffer>,
     receiver: Receiver<AudioBuffer>,
@@ -33,7 +34,7 @@ impl Default for FfiAudioReceiver {
     }
 }
 
-impl AudioProviding for FfiAudioReceiver {
+impl AudioInterface for FfiAudioReceiver {
     fn is_accessible(&self) -> bool {
         self.selected_source.is_some()
     }
@@ -47,7 +48,7 @@ impl AudioProviding for FfiAudioReceiver {
         audio_device: &AudioDevice,
         channel_selection: AudioChannelSelection,
     ) -> anyhow::Result<()> {
-        if channel_selection.is_valid_for_device(audio_device) {
+        if !audio_device.supports_channels(&channel_selection) {
             log::error!("Invalid selection : {channel_selection:#?} for : {audio_device:#?}");
             return Ok(());
         }
@@ -62,10 +63,6 @@ impl AudioProviding for FfiAudioReceiver {
         Ok(())
     }
 
-    fn retrieve_audio_buffer(&mut self) -> AudioBuffer {
-        std::mem::take(&mut self.audio)
-    }
-
     fn process_audio_events(&mut self) -> anyhow::Result<()> {
         match self.receiver.try_recv() {
             Ok(mut audio) => {
@@ -77,6 +74,12 @@ impl AudioProviding for FfiAudioReceiver {
         }
 
         Ok(())
+    }
+}
+
+impl AudioProviding for FfiAudioReceiver {
+    fn retrieve_audio_buffer(&mut self) -> AudioBuffer {
+        std::mem::take(&mut self.audio)
     }
 }
 
@@ -94,7 +97,7 @@ pub struct aud_audio_device_t {
 /// stream to any `aud` audio
 /// consumer
 #[no_mangle]
-pub extern "C" fn aud_audio_stream_create() -> *mut c_void {
+pub extern "C" fn aud_audio_provider_create() -> *mut c_void {
     let audio = Box::<FfiAudioReceiver>::default();
     Box::into_raw(audio) as *mut _
 }
@@ -104,7 +107,7 @@ pub extern "C" fn aud_audio_stream_create() -> *mut c_void {
 /// Not thread-safe, needs to be called from the same
 /// thread that calls `create()`
 #[no_mangle]
-pub unsafe extern "C" fn aud_audio_stream_set_sources(
+pub unsafe extern "C" fn aud_audio_provider_set_sources(
     ctx: *mut c_void,
     sources: *const aud_audio_device_t,
     num_sources: c_uint,
@@ -135,11 +138,11 @@ pub unsafe extern "C" fn aud_audio_stream_set_sources(
 ///
 /// The caller must supply the name of this source
 #[no_mangle]
-pub unsafe extern "C" fn aud_audio_stream_push(
+pub unsafe extern "C" fn aud_audio_provider_push(
     ctx: *mut c_void,
     source_name: *mut c_char,
     interleaved_buffer: *const f32,
-    num_samples: c_uint,
+    num_frames: c_uint,
     num_channels: c_uint,
 ) {
     if ctx.is_null() {
@@ -167,10 +170,10 @@ pub unsafe extern "C" fn aud_audio_stream_push(
         return;
     }
 
-    let data = slice::from_raw_parts(interleaved_buffer, (num_channels * num_samples) as usize);
+    let data = slice::from_raw_parts(interleaved_buffer, (num_channels * num_frames) as usize);
     let num_requested_channels = receiver.selected_channels.len() as u32;
     let mut write_chan = 0;
-    let mut buffer = AudioBuffer::new(num_samples, num_requested_channels);
+    let mut buffer = AudioBuffer::with_frames(num_frames, num_requested_channels);
     for (chan, frame) in data.chunks(num_channels as usize).enumerate() {
         if !receiver.selected_channels.contains(&chan) {
             continue;
@@ -188,12 +191,11 @@ pub unsafe extern "C" fn aud_audio_stream_push(
     }
 }
 
-/// Clean up the Audio Stream
-/// instance. Ensure the validity
-/// of the pointer, it must have
-/// been create by a `create`
+/// Destroy the instance for clean up.
+///
+/// Ensure the validity of the pointer, it must have been create by a `create`
 #[no_mangle]
-pub extern "C" fn aud_audio_stream_destroy(ctx: *mut c_void) {
+pub extern "C" fn aud_audio_provider_destroy(ctx: *mut c_void) {
     if ctx.is_null() {
         return;
     }
@@ -202,3 +204,12 @@ pub extern "C" fn aud_audio_stream_destroy(ctx: *mut c_void) {
         let _sender: Box<FfiAudioReceiver> = Box::from_raw(ctx as *mut _);
     }
 }
+
+// #[no_mangle]
+// pub extern "C" fn aud_audio_consumer_create() -> *mut c_void {}
+//
+// #[no_mangle]
+// pub extern "C" fn aud_audio_consumer_consume() -> FfiAudioBuffer {}
+//
+// #[no_mangle]
+// pub extern "C" fn aud_audio_consumer_destroy() {}

@@ -1,7 +1,11 @@
 use aud_lib::audio::*;
 use aud_lib::comms::*;
-use crossbeam::channel::{Receiver, Sender};
 use std::net::UdpSocket;
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::thread::sleep;
+use std::thread::JoinHandle;
+use std::time::Duration;
 
 #[derive(Default, Debug)]
 pub struct AudioInfo {
@@ -18,22 +22,49 @@ impl From<AudioBuffer> for AudioInfo {
     }
 }
 
-fn main() -> anyhow::Result<()> {
-    setup_logger()?;
+struct LoggingAudioConsumer {
+    buffers: Arc<Mutex<Vec<AudioBuffer>>>,
+    _handle: JoinHandle<()>,
+}
 
-    let mut rx = RemoteAudioReceiver::with_address(Sockets {
-        socket: UdpSocket::bind("127.0.0.1:8080").unwrap(),
-        target: "127.0.0.1:8081".parse().unwrap(),
-    })
-    .unwrap();
+impl Default for LoggingAudioConsumer {
+    fn default() -> Self {
+        let buffers = Arc::new(Mutex::new(vec![]));
+        let handle = std::thread::spawn({
+            let buffers = buffers.clone();
 
-    let (sender, receiver) = crossbeam::channel::bounded(100);
-    run_buffer_count_logger_task(receiver);
-    wait_for_list_of_devices(&mut rx);
-    request_audio_device_connection(&mut rx);
-    wait_for_audio_device_connection(&mut rx);
-    fetch_audio(&mut rx, sender);
-    Ok(())
+            move || loop {
+                let stats = buffers.try_lock().unwrap().iter().fold(
+                    AudioInfo::default(),
+                    |stats: AudioInfo, buffer: &AudioBuffer| AudioInfo {
+                        num_samples: stats.num_samples + buffer.num_frames() as u32,
+                        num_channels: stats.num_channels + buffer.num_channels as u32,
+                    },
+                );
+                buffers.try_lock().unwrap().clear();
+                log::info!(
+                    "last second : received {} samples, with {} buffers",
+                    stats.num_samples,
+                    stats.num_channels
+                );
+                sleep(Duration::from_millis(1_000));
+            }
+        });
+
+        Self {
+            _handle: handle,
+            buffers,
+        }
+    }
+}
+
+impl AudioConsuming for LoggingAudioConsumer {
+    fn consume_audio_buffer(&mut self, buffer: AudioBuffer) -> anyhow::Result<()> {
+        log::info!("{buffer:?}");
+        let mut buffers = self.buffers.lock().unwrap();
+        buffers.push(buffer);
+        Ok(())
+    }
 }
 
 fn setup_logger() -> Result<(), fern::InitError> {
@@ -52,29 +83,7 @@ fn setup_logger() -> Result<(), fern::InitError> {
     Ok(())
 }
 
-fn run_buffer_count_logger_task(receiver: Receiver<AudioInfo>) {
-    std::thread::spawn(move || loop {
-        let stats = receiver
-            .try_iter()
-            .fold(AudioInfo::default(), |acc, info| AudioInfo {
-                num_channels: acc.num_channels + info.num_channels,
-                num_samples: acc.num_samples + info.num_samples,
-            });
-
-        log::info!("{stats:?}");
-        std::thread::sleep(std::time::Duration::from_millis(1_000));
-    });
-}
-
-fn wait_for_list_of_devices(rx: &mut RemoteAudioReceiver) {
-    while rx.list_audio_devices().is_empty() {
-        std::thread::sleep(std::time::Duration::from_millis(1_000));
-        rx.process_audio_events().unwrap();
-        log::info!("reattempting to get devices");
-    }
-}
-
-fn request_audio_device_connection(rx: &mut RemoteAudioReceiver) {
+fn request_audio_device_connection(rx: &mut RemoteAudioReceiver<LoggingAudioConsumer>) {
     let devices = rx.list_audio_devices().to_vec();
     log::info!("found devices : {devices:#?}");
     let channels = AudioChannelSelection::Mono(0);
@@ -86,19 +95,35 @@ fn request_audio_device_connection(rx: &mut RemoteAudioReceiver) {
     );
 }
 
-fn wait_for_audio_device_connection(rx: &mut RemoteAudioReceiver) {
-    while rx.retrieve_audio_buffer().data.is_empty() {
-        rx.process_audio_events().unwrap();
-        std::thread::sleep(std::time::Duration::from_millis(100));
-    }
-}
+fn main() -> anyhow::Result<()> {
+    setup_logger()?;
 
-fn fetch_audio(rx: &mut RemoteAudioReceiver, sender: Sender<AudioInfo>) {
-    loop {
+    let mut rx = RemoteAudioReceiver::new(
+        LoggingAudioConsumer::default(),
+        Sockets {
+            socket: UdpSocket::bind("127.0.0.1:8080").unwrap(),
+            target: "127.0.0.1:8081".parse().unwrap(),
+        },
+    )
+    .unwrap();
+
+    while rx.list_audio_devices().is_empty() {
+        sleep(Duration::from_millis(1_000));
         rx.process_audio_events().unwrap();
-        let audio = rx.retrieve_audio_buffer();
-        if !audio.data.is_empty() {
-            sender.send(audio.into()).unwrap();
-        }
+        log::info!("reattempting to get devices");
     }
+
+    request_audio_device_connection(&mut rx);
+
+    while !rx.is_accessible() {
+        rx.process_audio_events().unwrap();
+        sleep(Duration::from_millis(100));
+    }
+
+    while rx.is_accessible() {
+        rx.process_audio_events().unwrap();
+        sleep(Duration::from_millis(10));
+    }
+
+    Ok(())
 }

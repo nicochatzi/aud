@@ -27,6 +27,10 @@ test:
 dev CMD='just b':
 	cargo watch -cs 'reset; {{CMD}}' -i 'res/*' -i 'out/*' -i 'lua/api/examples/*'
 
+# run the benchmarks
+bench:
+	cargo bench --features bench
+
 # install the apps in a directory
 install DIR='./out': build
 	#!/usr/bin/env bash

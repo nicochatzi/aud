@@ -64,7 +64,7 @@ impl AudioPacketSequence {
     /// This can then be used to stream by extracting the packets,
     /// which is why this struct itself is not serialisable
     /// while individual packets are.
-    pub fn from_buffer(start_index: u64, buffer: AudioBuffer) -> Self {
+    pub fn from_buffer(start_index: u64, buffer: &AudioBuffer) -> Self {
         Self {
             packets: buffer
                 .data
@@ -94,10 +94,13 @@ impl AudioPacketSequence {
         seq
     }
 
+    /// Consume the sequence returning the raw array of packets
     pub fn into_packets(self) -> Vec<AudioPacket> {
         self.packets
     }
 
+    /// Push a single packet and update the internal sequence.
+    /// When possible, prefer batch operations for performance.
     pub fn push(&mut self, packet: AudioPacket) {
         if !packet.is_valid() {
             log::warn!("invalid packet checksum");
@@ -115,6 +118,11 @@ impl AudioPacketSequence {
         }
 
         self.insert_sorted(packet);
+    }
+
+    /// Total number of packets currently held in the sequence.
+    pub fn num_packets(&self) -> usize {
+        self.packets.len()
     }
 
     /// Get the number of channels in each buffer
@@ -135,7 +143,7 @@ impl AudioPacketSequence {
     pub fn num_available_frames(&self) -> usize {
         self.packets
             .iter()
-            .take(Self::NUM_BUFFER_PACKETS.saturating_sub(self.packets.len()))
+            .take(self.packets.len().saturating_sub(Self::NUM_BUFFER_PACKETS))
             .map(|p| p.buffer.num_frames())
             .sum()
     }
@@ -181,6 +189,19 @@ impl AudioPacketSequence {
     }
 }
 
+#[derive(Default)]
+pub struct AudioPacketSequenceBuilder {
+    packet_count: u64,
+}
+
+impl AudioPacketSequenceBuilder {
+    pub fn from_buffer(&mut self, buffer: &AudioBuffer) -> AudioPacketSequence {
+        let sequence = AudioPacketSequence::from_buffer(self.packet_count, buffer);
+        self.packet_count += sequence.num_packets() as u64;
+        sequence
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -191,7 +212,8 @@ mod tests {
         const NUM_SAMPLES: u32 =
             AudioPacketSequence::NUM_SAMPLES_PER_PACKET as u32 * NUM_EXPECTED_PACKETS;
         let packets =
-            AudioPacketSequence::from_buffer(0, AudioBuffer::new(NUM_SAMPLES, 1)).into_packets();
+            AudioPacketSequence::from_buffer(0, &AudioBuffer::with_length(NUM_SAMPLES, 1))
+                .into_packets();
 
         assert_eq!(packets.len(), NUM_EXPECTED_PACKETS as usize);
     }
@@ -210,7 +232,7 @@ mod tests {
             num_channels: num_channels as u32,
         };
 
-        let packets = AudioPacketSequence::from_buffer(0, expected_buffer.clone()).into_packets();
+        let packets = AudioPacketSequence::from_buffer(0, &expected_buffer).into_packets();
         let buffers = AudioPacketSequence::with_packets(packets).consume();
         assert_eq!(buffers.len(), num_fragments_per_buffer);
 

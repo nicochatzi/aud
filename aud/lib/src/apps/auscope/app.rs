@@ -1,12 +1,15 @@
 use crate::audio::*;
 
-pub struct App<AudioReceiver: AudioProviding> {
+pub struct App<AudioReceiver> {
     audio_buffer: AudioBuffer,
     audio_receiver: AudioReceiver,
     audio_device: Option<AudioDevice>,
 }
 
-impl<AudioReceiver: AudioProviding> App<AudioReceiver> {
+impl<AudioReceiver> App<AudioReceiver>
+where
+    AudioReceiver: AudioProviding + AudioInterface,
+{
     pub fn with_audio_receiver(audio_receiver: AudioReceiver) -> Self {
         Self {
             audio_buffer: AudioBuffer::default(),
