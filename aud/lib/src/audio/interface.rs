@@ -92,7 +92,7 @@ impl AudioBuffer {
     /// ```
     /// use aud_lib::audio::AudioBuffer;
     ///
-    /// let buffer = AudioBuffer::with_len(20, 2);
+    /// let buffer = AudioBuffer::with_length(20, 2);
     /// assert_eq!(buffer.data.len(), 20);  // Total number of samples
     /// assert_eq!(buffer.num_channels, 2);
     /// ```

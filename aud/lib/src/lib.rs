@@ -27,9 +27,9 @@ pub mod dsp {
     /// ```rust
     /// use aud_lib::dsp::deinterleave;
     ///
-    /// let interleaved = vec![1.0, 2.0, 3.0, 4.0];  // Assuming 2 channels
+    /// let interleaved = [1.0, 2.0, 3.0, 4.0];  // Assuming 2 channels
     /// let deinterleaved = deinterleave(&interleaved, 2);
-    /// assert_eq!(deinterleaved, vec![vec![1.0, 3.0], vec![2.0, 4.0]]);
+    /// assert_eq!(deinterleaved, &[&[1.0, 3.0], &[2.0, 4.0]]);
     /// ```
     #[inline]
     pub fn deinterleave(buffer: &[f32], num_channels: usize) -> Vec<Vec<f32>> {
@@ -60,10 +60,8 @@ pub mod dsp {
     /// ```rust
     /// use aud_lib::dsp::interleave;
     ///
-    /// let channels = vec![vec![1.0, 3.0], vec![2.0, 4.0]];
-    /// let interleaved: Vec<_> = channels.iter().map(AsRef::as_ref).collect();
-    /// let interleaved_buffer = interleave(&interleaved);
-    /// assert_eq!(interleaved_buffer, vec![1.0, 2.0, 3.0, 4.0]);
+    /// let interleaved_buffer = interleave(&[&[1.0, 3.0], &[2.0, 4.0]]);
+    /// assert_eq!(interleaved_buffer, &[1.0, 2.0, 3.0, 4.0]);
     /// ```
     #[inline]
     pub fn interleave(buffer: &[impl AsRef<[f32]>]) -> Vec<f32> {
