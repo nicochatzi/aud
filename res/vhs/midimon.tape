@@ -22,8 +22,6 @@ Type "d"
 Sleep 4s
 Type "q"
 
-Type "l"
-Sleep 250ms
 Type "j"
 Sleep 250ms
 Enter

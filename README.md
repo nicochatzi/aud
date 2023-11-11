@@ -18,3 +18,20 @@ scriptable <code>aud</code>io terminal tools
 
 📚 [Docs](./doc/readme.md) for all commands
 
+## Commands
+
+### `help`
+
+![aud](./res/out/aud.gif)
+
+### `midimon`
+
+![midimon](./res/out/midimon.gif)
+
+### `auscope`
+
+![auscope](./res/out/auscope.gif)
+
+### `derlink`
+
+![derlink](./res/out/derlink.gif)

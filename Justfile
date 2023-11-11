@@ -2,7 +2,7 @@ _help:
 	@just --list --unsorted
 
 # lint, build, install and tape
-all: audit (install '~/.aud/bin') tape render
+all: audit (install '~/.aud/bin') tape
 
 # format, lint and check deps - requires `cargo-deny`
 audit:
@@ -47,18 +47,6 @@ tape:
 	#!/usr/bin/env bash
 	parallel --ungroup vhs ::: res/vhs/*
 
-# generate renders
-render:
-	#!/usr/bin/env bash
-	rm -f doc/renders.md
-	for file in `ls res/vhs`; do
-		f=${file%.*}
-		echo "## \`$f\`"  >> doc/renders.md
-		echo ""  >> doc/renders.md
-		echo "![$f](../res/out/$f.gif)" >> doc/renders.md
-		echo ""  >> doc/renders.md
-	done
-
 # tail a log file - request `bat`
 log FILE='~/.aud/log/aud.log':
 	# log highlighting is available but yaml looks nicer
@@ -82,7 +70,7 @@ _udeps:
 
 [linux]
 _setup_packages:
-	sudo apt-get install parallel pkg-config lua
+	sudo apt-get install parallel vhs pkg-config lua
 
 [macos]
 _setup_packages:
