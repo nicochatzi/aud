@@ -8,7 +8,7 @@ lazy_static::lazy_static! {
     static ref LUA: &'static parsing::SyntaxReference = PS.find_syntax_by_extension("lua").unwrap();
 }
 
-pub fn render_code<B: Backend>(f: &mut Frame<B>, title: &str, code_text: &str) {
+pub fn render_code(f: &mut Frame, title: &str, code_text: &str) {
     let mut h = easy::HighlightLines::new(&LUA, &THEME);
     let (block, area) = setup_popup(f, title, 80, 80);
     let code = get_highlighted_code(&mut h, code_text, &PS).block(block);
@@ -16,7 +16,7 @@ pub fn render_code<B: Backend>(f: &mut Frame<B>, title: &str, code_text: &str) {
     f.render_widget(code, area);
 }
 
-pub fn render_text<B: Backend>(f: &mut Frame<B>, title: &str, text: &str) {
+pub fn render_text(f: &mut Frame, title: &str, text: &str) {
     let lines: Vec<_> = text.split('\n').filter(|l| !l.is_empty()).collect();
     let num_lines = lines.len();
     let max_width = lines.iter().fold(0, |max, line| line.len().max(max));
@@ -73,8 +73,8 @@ fn get_highlighted_code<'a>(
     List::new(highlighted_text)
 }
 
-fn setup_popup<'a, B: Backend>(
-    f: &mut Frame<B>,
+fn setup_popup<'a>(
+    f: &mut Frame,
     title: &'a str,
     height_precentage: u16,
     width_precentage: u16,

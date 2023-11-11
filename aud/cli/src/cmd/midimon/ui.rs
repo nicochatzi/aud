@@ -155,7 +155,7 @@ impl Ui {
         Ok(UiEvent::Continue)
     }
 
-    pub fn render(&mut self, f: &mut Frame<impl Backend>, app: &App) {
+    pub fn render(&mut self, f: &mut Frame, app: &App) {
         let sections = Layout::default()
             .direction(Direction::Vertical)
             .margin(1)

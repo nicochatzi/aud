@@ -69,7 +69,7 @@ impl crate::app::Base for TerminalApp {
         Ok(crate::app::Flow::Continue)
     }
 
-    fn render(&mut self, f: &mut Frame<impl Backend>) {
+    fn render(&mut self, f: &mut Frame) {
         if let Some(alert) = self.app.take_alert() {
             self.ui.show_alert_message(&alert);
         }

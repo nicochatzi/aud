@@ -105,7 +105,7 @@ impl Ui {
         UiEvent::Continue
     }
 
-    pub fn render(&mut self, f: &mut Frame<impl Backend>, app: &mut super::AuscopeApp) {
+    pub fn render(&mut self, f: &mut Frame, app: &mut super::AuscopeApp) {
         let sections = Layout::default()
             .direction(Direction::Horizontal)
             .margin(1)

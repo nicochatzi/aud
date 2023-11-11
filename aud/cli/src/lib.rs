@@ -79,7 +79,7 @@ pub mod app {
         }
 
         /// Render the terminal UI frame
-        fn render(&mut self, frame: &mut Frame<impl Backend>);
+        fn render(&mut self, frame: &mut Frame);
     }
 
     pub fn run(

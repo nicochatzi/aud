@@ -52,7 +52,7 @@ impl crate::app::Base for TerminalApp {
         Ok(crate::app::Flow::Continue)
     }
 
-    fn render(&mut self, f: &mut Frame<impl Backend>) {
+    fn render(&mut self, f: &mut Frame) {
         self.ui.render(f, &mut self.app)
     }
 }
