@@ -1,5 +1,6 @@
-pub mod cmd;
-pub mod ui;
+pub mod auscope;
+pub mod derlink;
+pub mod midimon;
 
 pub mod terminal {
     use crossterm::{
@@ -219,8 +220,8 @@ pub mod locations {
         Some(aud()?.join("log"))
     }
 
-    pub fn log_file() -> Option<std::path::PathBuf> {
-        Some(log()?.join("aud.log"))
+    pub fn log_file(name: &str) -> Option<std::path::PathBuf> {
+        Some(log()?.join(format!("{name}.log")))
     }
 
     pub mod lua {

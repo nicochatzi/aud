@@ -17,6 +17,7 @@ pub trait BincodeDeserialize: Sized {
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum AudioResponse {
+    Connected(AudioDeviceConnection),
     Devices(Vec<AudioDevice>),
     Audio(AudioPacket),
 }

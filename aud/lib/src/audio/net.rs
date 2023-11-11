@@ -12,9 +12,10 @@ pub struct RemoteAudioReceiver<AudioConsumer: AudioConsuming> {
     devices: Vec<AudioDevice>,
     sender: Sender<AudioRequest>,
     receiver: Receiver<AudioResponse>,
-    has_connected: bool,
+    is_remote_accessible: bool,
     packets: AudioPacketSequence,
     audio_consumer: AudioConsumer,
+    connected_device: Option<AudioDeviceConnection>,
     _handle: SocketCommunicator,
 }
 
@@ -33,9 +34,10 @@ impl<AudioConsumer: AudioConsuming> RemoteAudioReceiver<AudioConsumer> {
             devices: vec![],
             sender: request_tx,
             receiver: response_rx,
-            has_connected: false,
+            is_remote_accessible: false,
             audio_consumer,
             packets: AudioPacketSequence::default(),
+            connected_device: None,
             _handle: SocketCommunicator::launch(
                 sockets,
                 Events {
@@ -49,7 +51,7 @@ impl<AudioConsumer: AudioConsuming> RemoteAudioReceiver<AudioConsumer> {
 
 impl<AudioConsumer: AudioConsuming> AudioInterface for RemoteAudioReceiver<AudioConsumer> {
     fn is_accessible(&self) -> bool {
-        self.has_connected
+        self.is_remote_accessible
     }
 
     fn list_audio_devices(&self) -> &[AudioDevice] {
@@ -65,7 +67,7 @@ impl<AudioConsumer: AudioConsuming> AudioInterface for RemoteAudioReceiver<Audio
         audio_device: &AudioDevice,
         channel_selection: AudioChannelSelection,
     ) -> anyhow::Result<()> {
-        self.has_connected = false;
+        self.is_remote_accessible = false;
         self.sender.send(AudioRequest::Connect {
             device: audio_device.clone(),
             channels: channel_selection.clone(),
@@ -73,15 +75,23 @@ impl<AudioConsumer: AudioConsuming> AudioInterface for RemoteAudioReceiver<Audio
         Ok(())
     }
 
+    fn connected_audio_device(&self) -> Option<&AudioDeviceConnection> {
+        self.connected_device.as_ref()
+    }
+
     fn process_audio_events(&mut self) -> anyhow::Result<()> {
         while let Ok(event) = self.receiver.try_recv() {
             match event {
+                AudioResponse::Connected(dev) => {
+                    self.is_remote_accessible = true;
+                    self.connected_device = Some(dev)
+                }
                 AudioResponse::Devices(mut devices) => {
-                    self.has_connected = true;
+                    self.is_remote_accessible = true;
                     self.devices = std::mem::take(&mut devices)
                 }
                 AudioResponse::Audio(packet) => {
-                    self.has_connected = true;
+                    self.is_remote_accessible = true;
                     self.packets.push(packet);
                 }
             }
@@ -107,6 +117,7 @@ pub struct RemoteAudioTransmitter<AudioProvider> {
     requests: Receiver<AudioRequest>,
     responses: Sender<AudioResponse>,
     sequence: AudioPacketSequenceBuilder,
+    connected_device: Option<AudioDeviceConnection>,
     _handle: SocketCommunicator,
 }
 
@@ -129,6 +140,7 @@ where
             requests: request_rx,
             responses: response_tx,
             sequence: AudioPacketSequenceBuilder::default(),
+            connected_device: None,
             _handle: SocketCommunicator::launch(
                 sockets,
                 Events {
@@ -143,14 +155,13 @@ where
         let _ = self.audio_provider.retrieve_audio_buffer();
     }
 
-    fn try_send_audio(&mut self) -> anyhow::Result<()> {
+    fn try_send_audio(&mut self) {
         let buffer = self.audio_provider.retrieve_audio_buffer();
         for packet in self.sequence.from_buffer(&buffer).into_packets() {
             if let Err(e) = self.responses.try_send(AudioResponse::Audio(packet)) {
                 log::error!("Failed to pass audio response to socket tasks : {e}");
             }
         }
-        Ok(())
     }
 
     fn process_socket_requests(&mut self) -> anyhow::Result<()> {
@@ -158,14 +169,37 @@ where
             match request {
                 AudioRequest::GetDevices => {
                     let devices = self.audio_provider.list_audio_devices().to_vec();
-                    self.responses.try_send(AudioResponse::Devices(devices))?
+                    self.responses.try_send(AudioResponse::Devices(devices))?;
                 }
-                AudioRequest::Connect { device, channels } => self
-                    .audio_provider
-                    .connect_to_audio_device(&device, channels)?,
+                AudioRequest::Connect { device, channels } => {
+                    self.connect_to_audio_device(&device, channels.clone())?;
+                }
             }
         }
         Ok(())
+    }
+
+    fn update_selection_from_provider(&mut self) {
+        let should_update_device_info =
+            self.connected_device.as_ref() != self.audio_provider.connected_audio_device();
+
+        if should_update_device_info {
+            self.connected_device = self.audio_provider.connected_audio_device().cloned();
+            self.send_connected_response();
+        }
+    }
+
+    fn send_connected_response(&self) {
+        let Some(ref dev) = self.connected_device else {
+            return;
+        };
+
+        if let Err(e) = self
+            .responses
+            .try_send(AudioResponse::Connected(dev.clone()))
+        {
+            log::error!("Failed to pass connected message to socket tasks : {e}");
+        }
     }
 }
 
@@ -191,10 +225,16 @@ where
             .connect_to_audio_device(audio_device, channel_selection)
     }
 
+    fn connected_audio_device(&self) -> Option<&AudioDeviceConnection> {
+        self.connected_device.as_ref()
+    }
+
     fn process_audio_events(&mut self) -> anyhow::Result<()> {
-        self.audio_provider.process_audio_events()?;
+        self.update_selection_from_provider();
         self.process_socket_requests()?;
-        self.try_send_audio()
+        self.audio_provider.process_audio_events()?;
+        self.try_send_audio();
+        Ok(())
     }
 }
 

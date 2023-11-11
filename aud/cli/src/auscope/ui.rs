@@ -1,9 +1,9 @@
-use crate::ui::components;
 use aud::{
     audio::AudioDevice,
     files,
     lua::imported::auscope::{API, DOCS},
 };
+use aud_ui::components;
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::prelude::*;
 
@@ -129,7 +129,7 @@ impl Ui {
             f,
             device_selector_section,
             Selector::Device,
-            crate::title!("devices"),
+            aud_ui::title!("devices"),
             &app.devices()
                 .iter()
                 .map(|d| d.name.clone())
@@ -141,16 +141,17 @@ impl Ui {
                 f,
                 left_sections[1],
                 Selector::Script,
-                &crate::title!("{}", self.script_dir.as_ref().unwrap().to_string_lossy()),
+                &aud_ui::title!("{}", self.script_dir.as_ref().unwrap().to_string_lossy()),
                 self.script_names.as_slice(),
             );
         }
 
-        self.popups.render(f, Popup::Api, crate::title!("api"), API);
         self.popups
-            .render(f, Popup::Docs, crate::title!("docs"), DOCS);
+            .render(f, Popup::Api, aud_ui::title!("api"), API);
         self.popups
-            .render(f, Popup::Usage, crate::title!("usage"), USAGE);
+            .render(f, Popup::Docs, aud_ui::title!("docs"), DOCS);
+        self.popups
+            .render(f, Popup::Usage, aud_ui::title!("usage"), USAGE);
 
         // self.popups.render(f, Popup::Script, );
         // self.popups.render(f, Popup::Aler, );

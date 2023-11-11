@@ -136,8 +136,6 @@ fn handle_input_event<Socket, InputEvent>(
     if let Err(e) = socket.transmit(&request, target) {
         log::error!("Failed to send request: {:?}", e);
     }
-
-    log::trace!("Serialised and transmitted");
 }
 
 fn parse_socket_buffer<Socket, OutputEvent>(

@@ -10,6 +10,7 @@ pub struct HostAudioInput {
     receiver: Receiver<AudioBuffer>,
     stream: AudioStream,
     devices: Vec<AudioDevice>,
+    connected_device: Option<AudioDeviceConnection>,
     audio: AudioBuffer,
 }
 
@@ -31,6 +32,7 @@ impl Default for HostAudioInput {
             receiver,
             devices,
             audio: AudioBuffer::default(),
+            connected_device: None,
             host,
         }
     }
@@ -55,10 +57,22 @@ impl AudioInterface for HostAudioInput {
             .host
             .input_devices()?
             .find(|device| device.name().ok().as_deref() == Some(&audio_device.name))
-            .map(|device| AudioStream::open_input(self.sender.clone(), &device, channel_selection))
+            .map(|device| {
+                AudioStream::open_input(self.sender.clone(), &device, channel_selection.clone())
+            })
             .ok_or_else(|| anyhow::anyhow!("No audio input device selected"))??;
 
+        self.connected_device = Some(AudioDeviceConnection {
+            device: audio_device.to_owned(),
+            channels: channel_selection,
+            sample_rate: self.stream.config.as_ref().unwrap().sample_rate.0,
+        });
+
         Ok(())
+    }
+
+    fn connected_audio_device(&self) -> Option<&AudioDeviceConnection> {
+        self.connected_device.as_ref()
     }
 
     fn list_audio_devices(&self) -> &[AudioDevice] {
@@ -91,6 +105,7 @@ pub struct HostAudioOutput {
     receiver: Receiver<AudioBuffer>,
     stream: AudioStream,
     devices: Vec<AudioDevice>,
+    connected_device: Option<AudioDeviceConnection>,
 }
 
 impl Default for HostAudioOutput {
@@ -110,6 +125,7 @@ impl Default for HostAudioOutput {
             sender,
             receiver,
             devices,
+            connected_device: None,
             host,
         }
     }
@@ -135,11 +151,20 @@ impl AudioInterface for HostAudioOutput {
             .output_devices()?
             .find(|device| device.name().ok().as_deref() == Some(&audio_device.name))
             .map(|device| {
-                AudioStream::open_output(self.receiver.clone(), &device, channel_selection)
+                AudioStream::open_output(self.receiver.clone(), &device, channel_selection.clone())
             })
             .ok_or_else(|| anyhow::anyhow!("No audio output device selected"))??;
 
+        self.connected_device = Some(AudioDeviceConnection {
+            device: audio_device.to_owned(),
+            channels: channel_selection,
+            sample_rate: self.stream.config.as_ref().unwrap().sample_rate.0,
+        });
         Ok(())
+    }
+
+    fn connected_audio_device(&self) -> Option<&AudioDeviceConnection> {
+        self.connected_device.as_ref()
     }
 
     fn list_audio_devices(&self) -> &[AudioDevice] {
@@ -155,11 +180,6 @@ impl AudioConsuming for HostAudioOutput {
     fn consume_audio_buffer(&mut self, buffer: AudioBuffer) -> anyhow::Result<()> {
         Ok(self.sender.try_send(buffer)?)
     }
-}
-
-#[derive(Default)]
-struct AudioStream {
-    stream: Option<cpal::Stream>,
 }
 
 impl AudioDevice {
@@ -185,6 +205,12 @@ impl AudioDevice {
     }
 }
 
+#[derive(Default)]
+struct AudioStream {
+    stream: Option<cpal::Stream>,
+    config: Option<cpal::StreamConfig>,
+}
+
 impl Drop for AudioStream {
     fn drop(&mut self) {
         if let Some(stream) = self.stream.take() {
@@ -203,23 +229,25 @@ impl AudioStream {
         dev: &cpal::Device,
         sel: AudioChannelSelection,
     ) -> anyhow::Result<Self> {
-        let config = dev.default_input_config()?;
-        let stream = match config.sample_format() {
-            cpal::SampleFormat::I8 => read::<i8>(tx, dev, &config.into(), sel),
-            cpal::SampleFormat::I16 => read::<i16>(tx, dev, &config.into(), sel),
-            cpal::SampleFormat::I32 => read::<i32>(tx, dev, &config.into(), sel),
-            cpal::SampleFormat::I64 => read::<i64>(tx, dev, &config.into(), sel),
-            cpal::SampleFormat::U8 => read::<u8>(tx, dev, &config.into(), sel),
-            cpal::SampleFormat::U16 => read::<u16>(tx, dev, &config.into(), sel),
-            cpal::SampleFormat::U32 => read::<u32>(tx, dev, &config.into(), sel),
-            cpal::SampleFormat::U64 => read::<u64>(tx, dev, &config.into(), sel),
-            cpal::SampleFormat::F32 => read::<f32>(tx, dev, &config.into(), sel),
-            cpal::SampleFormat::F64 => read::<f64>(tx, dev, &config.into(), sel),
+        let (config, sample_format) = setup_preferred_stream_config(dev.default_input_config()?);
+
+        let stream = match sample_format {
+            cpal::SampleFormat::I8 => read::<i8>(tx, dev, &config, sel),
+            cpal::SampleFormat::I16 => read::<i16>(tx, dev, &config, sel),
+            cpal::SampleFormat::I32 => read::<i32>(tx, dev, &config, sel),
+            cpal::SampleFormat::I64 => read::<i64>(tx, dev, &config, sel),
+            cpal::SampleFormat::U8 => read::<u8>(tx, dev, &config, sel),
+            cpal::SampleFormat::U16 => read::<u16>(tx, dev, &config, sel),
+            cpal::SampleFormat::U32 => read::<u32>(tx, dev, &config, sel),
+            cpal::SampleFormat::U64 => read::<u64>(tx, dev, &config, sel),
+            cpal::SampleFormat::F32 => read::<f32>(tx, dev, &config, sel),
+            cpal::SampleFormat::F64 => read::<f64>(tx, dev, &config, sel),
             sample_format => anyhow::bail!("Unsupported sample format '{sample_format}'"),
         }?;
 
         Ok(Self {
             stream: Some(stream),
+            config: Some(config),
         })
     }
 
@@ -228,25 +256,51 @@ impl AudioStream {
         dev: &cpal::Device,
         sel: AudioChannelSelection,
     ) -> anyhow::Result<Self> {
-        let config = dev.default_input_config()?;
-        let stream = match config.sample_format() {
-            cpal::SampleFormat::I8 => write::<i8>(rx, dev, &config.into(), sel),
-            cpal::SampleFormat::I16 => write::<i16>(rx, dev, &config.into(), sel),
-            cpal::SampleFormat::I32 => write::<i32>(rx, dev, &config.into(), sel),
-            cpal::SampleFormat::I64 => write::<i64>(rx, dev, &config.into(), sel),
-            cpal::SampleFormat::U8 => write::<u8>(rx, dev, &config.into(), sel),
-            cpal::SampleFormat::U16 => write::<u16>(rx, dev, &config.into(), sel),
-            cpal::SampleFormat::U32 => write::<u32>(rx, dev, &config.into(), sel),
-            cpal::SampleFormat::U64 => write::<u64>(rx, dev, &config.into(), sel),
-            cpal::SampleFormat::F32 => write::<f32>(rx, dev, &config.into(), sel),
-            cpal::SampleFormat::F64 => write::<f64>(rx, dev, &config.into(), sel),
+        let (config, sample_format) = setup_preferred_stream_config(dev.default_input_config()?);
+
+        let stream = match sample_format {
+            cpal::SampleFormat::I8 => write::<i8>(rx, dev, &config, sel),
+            cpal::SampleFormat::I16 => write::<i16>(rx, dev, &config, sel),
+            cpal::SampleFormat::I32 => write::<i32>(rx, dev, &config, sel),
+            cpal::SampleFormat::I64 => write::<i64>(rx, dev, &config, sel),
+            cpal::SampleFormat::U8 => write::<u8>(rx, dev, &config, sel),
+            cpal::SampleFormat::U16 => write::<u16>(rx, dev, &config, sel),
+            cpal::SampleFormat::U32 => write::<u32>(rx, dev, &config, sel),
+            cpal::SampleFormat::U64 => write::<u64>(rx, dev, &config, sel),
+            cpal::SampleFormat::F32 => write::<f32>(rx, dev, &config, sel),
+            cpal::SampleFormat::F64 => write::<f64>(rx, dev, &config, sel),
             sample_format => anyhow::bail!("Unsupported sample format '{sample_format}'"),
         }?;
 
         Ok(Self {
             stream: Some(stream),
+            config: Some(config),
         })
     }
+}
+
+fn setup_preferred_stream_config(
+    default_config: cpal::SupportedStreamConfig,
+) -> (cpal::StreamConfig, cpal::SampleFormat) {
+    let sample_format = default_config.sample_format();
+
+    let buffer_size = match *default_config.buffer_size() {
+        cpal::SupportedBufferSize::Range { min, max } => [512, 1024, 256]
+            .iter()
+            .find(|&&value| (min..max).contains(&value))
+            .map(|&value| cpal::BufferSize::Fixed(value)),
+        cpal::SupportedBufferSize::Unknown => {
+            log::warn!("CPAL failed to find a buffer size range");
+            None
+        }
+    };
+
+    let mut config: cpal::StreamConfig = default_config.into();
+    if let Some(buffer_size) = buffer_size {
+        config.buffer_size = buffer_size;
+    }
+
+    (config, sample_format)
 }
 
 fn read<T>(
@@ -261,7 +315,7 @@ where
     let enqueue_audio_input_data = make_audio_buffer_enqueueing_function::<T>(
         sender,
         config.channels as usize,
-        selection.to_vec(),
+        selection.as_vec(),
     );
 
     let stream = device.build_input_stream(
@@ -286,7 +340,7 @@ where
     T: SizedSample + FromSample<f32> + 'static,
 {
     let dequeue_audio_buffers_into_host =
-        make_audio_dequeing_function::<T>(receiver, config.channels as usize, selection.to_vec());
+        make_audio_dequeuing_function::<T>(receiver, config.channels as usize, selection.as_vec());
 
     let stream = device.build_output_stream(
         config,
@@ -333,7 +387,7 @@ where
     }
 }
 
-fn make_audio_dequeing_function<T>(
+fn make_audio_dequeuing_function<T>(
     receiver: Receiver<AudioBuffer>,
     total_num_channels: usize,
     channels: Vec<usize>,
@@ -402,7 +456,7 @@ pub fn test_make_audio_dequeing_function(
     total_num_channels: usize,
     channels: Vec<usize>,
 ) -> impl Fn(&mut [f32]) {
-    make_audio_dequeing_function::<f32>(receiver, total_num_channels, channels)
+    make_audio_dequeuing_function::<f32>(receiver, total_num_channels, channels)
 }
 
 #[cfg(test)]
@@ -443,7 +497,7 @@ mod test {
                 let process = make_audio_buffer_enqueueing_function::<f32>(
                     sender,
                     num_channels,
-                    channels.to_vec(),
+                    channels.as_vec(),
                 );
                 let mut buffer = AudioBuffer::with_frames(num_frames, num_channels as u32);
                 assign_channel_index_to_each_sample(&mut buffer);
@@ -469,7 +523,7 @@ mod test {
                     let (sender, receiver) = crossbeam::channel::unbounded();
 
                     let num_frames = 128;
-                    let channels = AudioChannelSelection::Range(start..end).to_vec();
+                    let channels = AudioChannelSelection::Range(start..end).as_vec();
                     let process = make_audio_buffer_enqueueing_function::<f32>(
                         sender,
                         num_channels,
@@ -502,9 +556,9 @@ mod test {
                 let (sender, receiver) = crossbeam::channel::unbounded();
 
                 let num_frames = 128;
-                let channels = AudioChannelSelection::Mono(selected_channel).to_vec();
+                let channels = AudioChannelSelection::Mono(selected_channel).as_vec();
                 let process =
-                    make_audio_dequeing_function(receiver, num_channels, channels.clone());
+                    make_audio_dequeuing_function(receiver, num_channels, channels.clone());
 
                 let mut buffer_sent = AudioBuffer::with_frames(num_frames, num_channels as u32);
                 assign_channel_index_to_each_sample(&mut buffer_sent);
@@ -539,9 +593,9 @@ mod test {
                     let (sender, receiver) = crossbeam::channel::unbounded();
 
                     let num_frames = 128;
-                    let channels = AudioChannelSelection::Range(start..end).to_vec();
+                    let channels = AudioChannelSelection::Range(start..end).as_vec();
                     let process =
-                        make_audio_dequeing_function(receiver, num_channels, channels.clone());
+                        make_audio_dequeuing_function(receiver, num_channels, channels.clone());
 
                     let mut buffer_sent = AudioBuffer::with_frames(num_frames, num_channels as u32);
                     assign_channel_index_to_each_sample(&mut buffer_sent);

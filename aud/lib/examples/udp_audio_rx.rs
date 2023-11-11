@@ -82,18 +82,6 @@ fn setup_logger() -> Result<(), fern::InitError> {
     Ok(())
 }
 
-fn request_audio_device_connection(rx: &mut RemoteAudioReceiver<LoggingAudioConsumer>) {
-    let devices = rx.list_audio_devices().to_vec();
-    log::info!("found devices : {devices:#?}");
-    let channels = AudioChannelSelection::Mono(0);
-    rx.connect_to_audio_device(&devices[0], channels.clone())
-        .unwrap();
-    log::info!(
-        "requested connection to : {:#?} with {channels:#?}",
-        devices[0].name
-    );
-}
-
 fn main() -> anyhow::Result<()> {
     setup_logger()?;
 
@@ -112,11 +100,29 @@ fn main() -> anyhow::Result<()> {
         log::info!("reattempting to get devices");
     }
 
-    request_audio_device_connection(&mut rx);
+    let devices = rx.list_audio_devices().to_vec();
+    let channels = AudioChannelSelection::Mono(0);
+    rx.connect_to_audio_device(&devices[0], channels.clone())
+        .unwrap();
+    log::info!("found devices : {devices:#?}");
+    log::info!(
+        "requested connection to : {:?} with {channels:?}",
+        devices[0].name
+    );
+
+    while rx.connected_audio_device().is_none() {
+        rx.process_audio_events().unwrap();
+        sleep(Duration::from_millis(1_000));
+        log::info!("waiting for transmitter to connect to device...");
+    }
+
+    let conn = rx.connected_audio_device().unwrap();
+    log::info!("connected to : {conn:?}");
 
     while !rx.is_accessible() {
         rx.process_audio_events().unwrap();
         sleep(Duration::from_millis(100));
+        log::info!("waiting for transmitter to be accessible...");
     }
 
     while rx.is_accessible() {

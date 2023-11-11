@@ -14,7 +14,7 @@ fn setup_logger() -> Result<(), fern::InitError> {
                 message
             ))
         })
-        .level(log::LevelFilter::Info)
+        .level(log::LevelFilter::Trace)
         .chain(std::io::stdout())
         .apply()?;
     Ok(())
@@ -32,7 +32,7 @@ fn main() -> anyhow::Result<()> {
 
     let mut tx = RemoteAudioTransmitter::new(HostAudioInput::default(), sockets).unwrap();
 
-    while !tx.is_accessible() {
+    while tx.connected_audio_device().is_none() {
         if let Err(e) = tx.process_audio_events() {
             log::error!("failed to process requests : {e}");
         }

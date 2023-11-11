@@ -32,6 +32,10 @@ dev CMD='just b':
 bench:
 	cargo bench --features bench
 
+# clean-build a release build with a timing report
+buildtime:
+	cargo clean && cargo build --timings --verbose --release
+
 # install the apps in a directory
 install DIR='./out': build
 	#!/usr/bin/env bash
@@ -44,7 +48,7 @@ tape:
 	parallel --ungroup vhs ::: res/vhs/*
 
 # generate renders
-render: 
+render:
 	#!/usr/bin/env bash
 	rm -f doc/renders.md
 	for file in `ls res/vhs`; do
@@ -54,18 +58,15 @@ render:
 		echo "![$f](../res/out/$f.gif)" >> doc/renders.md
 		echo ""  >> doc/renders.md
 	done
-	
+
 # tail a log file - request `bat`
 log FILE='~/.aud/log/aud.log':
 	# log highlighting is available but yaml looks nicer
 	tail -n5 -f {{FILE}} | bat --paging=never -l=yaml --style=plain
 
-# create a new command - does not update `main.rs`
-new_cmd NAME: 
-	#!/usr/bin/env bash
-	cp -r src/commands/.template src/commands/{{NAME}}
-	echo "pub mod {{NAME}};" >> src/commands/mod.rs
-	cargo fmt
+# log localhost udp comms
+udpdump:
+	sudo tcpdump -i lo0 udp port 8080 -v # -X
 
 # run-once setup your development environment for this project
 setup: (_setup_packages)

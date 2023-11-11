@@ -1,5 +1,5 @@
 use super::lua::*;
-use crate::{
+use aud::{
     files,
     lua::{traits::api::*, LuaEngineEvent, LuaEngineHandle},
     midi::{HostedMidiReceiver, MidiData, MidiReceiving},
@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 pub enum AppEvent {
     Continue,
     Stopping,
-    ScriptCrash,
+    // ScriptCrash,
     ScriptLoaded,
 }
 
@@ -40,7 +40,7 @@ impl Default for App {
         Self {
             host_tx,
             script_rx,
-            lua_handle: crate::lua::start_engine(ScriptController::new(script_tx, host_rx)),
+            lua_handle: aud::lua::start_engine(ScriptController::new(script_tx, host_rx)),
             selected_port_name: None,
             port_names: midi_in.list_midi_devices().unwrap(),
             midi_in,
@@ -82,21 +82,12 @@ impl App {
         self.script_path.as_ref()
     }
 
-    pub fn messages(&self) -> &[MidiData] {
-        self.messages.as_slice()
-    }
-
     pub fn take_messages(&mut self) -> Vec<MidiData> {
         std::mem::take(&mut self.messages)
     }
 
     pub fn clear_messages(&mut self) {
         self.messages.clear();
-    }
-
-    pub fn update_ports(&mut self) -> anyhow::Result<()> {
-        self.port_names = self.midi_in.list_midi_devices()?;
-        Ok(())
     }
 
     pub fn connect_to_midi_input_by_index(&mut self, port_index: usize) -> anyhow::Result<()> {

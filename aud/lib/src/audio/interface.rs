@@ -15,6 +15,9 @@ pub trait AudioInterface {
         channel_selection: AudioChannelSelection,
     ) -> anyhow::Result<()>;
 
+    /// Retrieve the currently connected audio device
+    fn connected_audio_device(&self) -> Option<&AudioDeviceConnection>;
+
     /// Process internal messages, this may include fetching
     /// or pushing audio to the underlying `AudioDevice`
     fn process_audio_events(&mut self) -> anyhow::Result<()>;
@@ -166,6 +169,13 @@ impl AudioDevice {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct AudioDeviceConnection {
+    pub device: AudioDevice,
+    pub channels: AudioChannelSelection,
+    pub sample_rate: u32,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum AudioChannelSelection {
     Mono(usize),
     Range(Range<usize>),
@@ -174,15 +184,16 @@ pub enum AudioChannelSelection {
 
 impl AudioChannelSelection {
     /// Build an array containing all the unique channel numbers
-    pub fn to_vec(self) -> Vec<usize> {
+    pub fn as_vec(&self) -> Vec<usize> {
         match self {
-            AudioChannelSelection::Mono(chan) => vec![chan],
-            AudioChannelSelection::Range(r) => r.into_iter().collect(),
+            AudioChannelSelection::Mono(chan) => vec![*chan],
+            AudioChannelSelection::Range(r) => r.clone().collect(),
             AudioChannelSelection::Multi(list) => list
-                .into_iter()
+                .iter()
                 .collect::<HashSet<_>>()
-                .into_iter()
-                .collect(),
+                .iter()
+                .map(|&v| *v)
+                .collect::<Vec<_>>(),
         }
     }
 

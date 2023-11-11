@@ -1,4 +1,4 @@
-use aud_cli::{cmd::*, logger, terminal::with_terminal};
+use aud_cli::{terminal::with_terminal, *};
 use clap::{CommandFactory, Parser, Subcommand};
 use std::io::Write;
 

@@ -1,5 +1,5 @@
 [workspace]
-members = ["aud/cli", "aud/lib"]
+members = ["aud/cli", "aud/lib", "aud/ui"]
 resolver = "2"
 
 [profile.release]
@@ -12,3 +12,5 @@ crossbeam = { version = "0.8.2", features = ["crossbeam-channel"] }
 log = "0.4.20"
 lazy_static = "1.4.0"
 fern = "0.6.2"
+notify = "6.1.1"
+ratatui = "0.24.0"

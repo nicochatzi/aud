@@ -3,7 +3,6 @@
 #![warn(rust_2021_incompatible_or_patterns)]
 #![warn(rust_2021_incompatible_closure_captures)]
 
-pub mod apps;
 pub mod audio;
 pub mod comms;
 pub mod files;

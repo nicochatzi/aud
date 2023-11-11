@@ -1,10 +1,12 @@
+mod app;
+mod lua;
 mod ui;
 
-use crate::ui::widgets::midi::MidiMessageString;
+use aud_ui::widgets::midi::MidiMessageString;
 use ratatui::prelude::*;
 
-type MidimonApp = aud::apps::midimon::app::App;
-type MidimonEvent = aud::apps::midimon::app::AppEvent;
+type MidimonApp = app::App;
+type MidimonEvent = app::AppEvent;
 
 struct TerminalApp {
     ui: ui::Ui,
@@ -80,7 +82,8 @@ impl crate::app::Base for TerminalApp {
 
 #[derive(Debug, clap::Parser)]
 pub struct Options {
-    /// Path to log file to write to
+    /// Path to log file to write to. Defaults
+    /// to system log file at ~/.aud/log/auscope.log
     #[arg(long)]
     log: Option<std::path::PathBuf>,
 
@@ -94,7 +97,7 @@ pub struct Options {
 }
 
 pub fn run(terminal: &mut Terminal<impl Backend>, opts: Options) -> anyhow::Result<()> {
-    if let Some(log_file) = opts.log.or(crate::locations::log_file()) {
+    if let Some(log_file) = opts.log.or(crate::locations::log_file("midimon")) {
         crate::logger::start("midimon", log_file)?;
     }
 

@@ -20,6 +20,7 @@ fn generate_c_header() {
         .generate()
         .expect("Unable to generate bindings")
         .write_to_file("include/aud.h");
+    println!("cargo:rerun-if-changed=include/aud.h");
 }
 
 fn inject_lua_files() {
@@ -61,14 +62,14 @@ fn inject_lua_files() {
     ]);
 }
 
-struct Module<'a> {
-    name: &'a str,
-    sources: &'a [Source<'a>],
-}
-
 struct Source<'a> {
     name: &'a str,
     path: &'a Path,
+}
+
+struct Module<'a> {
+    name: &'a str,
+    sources: &'a [Source<'a>],
 }
 
 fn creates_tables_from_sources(modules: &[Module<'_>]) {

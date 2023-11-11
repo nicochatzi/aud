@@ -1,9 +1,10 @@
+mod app;
 mod ui;
 
 use crossterm::event::KeyCode;
 use ratatui::prelude::*;
 
-type DerlinkApp = aud::apps::derlink::app::App;
+type DerlinkApp = app::App;
 
 #[derive(Default)]
 struct TerminalApp {
@@ -59,7 +60,8 @@ impl crate::app::Base for TerminalApp {
 
 #[derive(Debug, clap::Parser)]
 pub struct Options {
-    /// Path to log file to write to
+    /// Path to log file to write to. Defaults
+    /// to system log file at ~/.aud/log/auscope.log
     #[arg(long)]
     log: Option<std::path::PathBuf>,
 
@@ -69,7 +71,7 @@ pub struct Options {
 }
 
 pub fn run(terminal: &mut Terminal<impl Backend>, opts: Options) -> anyhow::Result<()> {
-    if let Some(log_file) = opts.log.or(crate::locations::log_file()) {
+    if let Some(log_file) = opts.log.or(crate::locations::log_file("derlink")) {
         crate::logger::start("derlink", log_file)?;
     }
 
