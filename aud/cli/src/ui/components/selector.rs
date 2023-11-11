@@ -73,16 +73,15 @@ impl Selector {
         self.selection
     }
 
-    pub fn render<'a, B, T>(
+    pub fn render<'a, T>(
         &'a mut self,
-        f: &mut Frame<B>,
+        f: &mut Frame,
         area: Rect,
         title: &'a str,
         items: &[T],
         is_highlighted: bool,
     ) where
         for<'b> Cow<'b, str>: From<&'b T>,
-        B: Backend,
     {
         let items: Vec<ListItem> = items
             .iter()

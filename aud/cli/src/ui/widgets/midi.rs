@@ -7,12 +7,7 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem},
 };
 
-pub fn render_messages(
-    f: &mut Frame<impl Backend>,
-    title: &str,
-    messages: &[MidiMessageString],
-    area: Rect,
-) {
+pub fn render_messages(f: &mut Frame, title: &str, messages: &[MidiMessageString], area: Rect) {
     const MAX_NUM_MESSAGES_ON_SCREEN: usize = 128;
 
     let message_list: Vec<ListItem> = messages

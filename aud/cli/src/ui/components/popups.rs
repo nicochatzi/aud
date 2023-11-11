@@ -53,7 +53,7 @@ where
         self.visible == Some(popup)
     }
 
-    pub fn render(&mut self, f: &mut Frame<impl Backend>, popup: Key, title: &str, text: &str) {
+    pub fn render(&mut self, f: &mut Frame, popup: Key, title: &str, text: &str) {
         if self.visible.is_none() {
             return;
         }

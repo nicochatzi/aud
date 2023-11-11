@@ -21,7 +21,7 @@ pub struct Ui {
 }
 
 impl Ui {
-    pub fn render<B: Backend>(&mut self, f: &mut Frame<B>, app: &mut aud::apps::derlink::app::App) {
+    pub fn render(&mut self, f: &mut Frame, app: &mut aud::apps::derlink::app::App) {
         let sections = Layout::default()
             .direction(Direction::Horizontal)
             .margin(1)

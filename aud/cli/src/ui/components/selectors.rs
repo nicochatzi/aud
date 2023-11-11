@@ -110,16 +110,15 @@ where
         })
     }
 
-    pub fn render<'a, B, T>(
+    pub fn render<'a, T>(
         &'a mut self,
-        f: &mut Frame<B>,
+        f: &mut Frame,
         area: Rect,
         selector: Key,
         title: &'a str,
         elements: &[T],
     ) where
         for<'b> Cow<'b, str>: From<&'b T>,
-        B: Backend,
     {
         let is_focused = self.focused.as_ref() == Some(&selector);
 
