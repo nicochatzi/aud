@@ -3,7 +3,7 @@ use aud::{
     files,
     lua::imported::auscope::{API, DOCS},
 };
-use aud_ui::components;
+use aud_ui::{components, widgets};
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::prelude::*;
 
@@ -156,15 +156,15 @@ impl Ui {
         // self.popups.render(f, Popup::Script, );
         // self.popups.render(f, Popup::Aler, );
 
-        // let selected_device_name = match self.selectors.get(Selector::Device) {
-        //     Some(s) => s
-        //         .selected()
-        //         .and_then(|index| app.devices().get(index))
-        //         .map(|device| format!("˧ {} ꜔", device.name))
-        //         .unwrap_or_else(|| "".to_owned()),
-        //     None => "".to_owned(),
-        // };
+        let selected_device_name = match self.selectors.get(Selector::Device) {
+            Some(s) => s
+                .selected()
+                .and_then(|index| app.devices().get(index))
+                .map(|device| format!("˧ {} ꜔", device.name))
+                .unwrap_or_else(|| "".to_owned()),
+            None => "".to_owned(),
+        };
 
-        // widgets::scope::render(f, sections[1], &selected_device_name, app.audio_mut(), 1);
+        widgets::scope::render(f, sections[1], &selected_device_name, app.audio_mut());
     }
 }

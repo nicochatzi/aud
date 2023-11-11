@@ -42,6 +42,9 @@ install DIR='./out': build
 	mkdir -p {{DIR}}
 	cp target/release/aud {{DIR}}/aud
 
+_tape CMD:
+    vhs res/vhs/{{CMD}}.tape
+
 # create CLI recordings - requires `vhs` & `parallel`
 tape:
 	#!/usr/bin/env bash
@@ -58,7 +61,7 @@ udpdump:
 
 # run-once setup your development environment for this project
 setup: (_setup_packages)
-	cargo install cargo-deny cargo-watch cargo-nextest
+	cargo install cargo-deny cargo-watch cargo-nextest bat
 	echo "#!/bin/sh\n\n"\
 	"just audit\n"\
 	> .git/hooks/pre-push

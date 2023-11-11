@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+aud = { package = "aud_lib", path = "../lib" }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 crossbeam = { workspace = true }
