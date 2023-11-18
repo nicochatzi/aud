@@ -1,4 +1,4 @@
-use aud::{
+use crate::{
     lua::{
         imported::midimon::API,
         traits::{api::*, hooks::*},
@@ -22,6 +22,7 @@ pub enum ScriptEvent {
     Log(LogApiEvent),
     Control(ControlFlowApiEvent),
     Connect(ConnectionApiEvent),
+    Loaded,
 }
 
 impl From<LogApiEvent> for ScriptEvent {
@@ -66,7 +67,8 @@ impl LuaRuntimeControlling for ScriptController {
                 match event {
                     HostEvent::Stop => self.stop_script(lua)?,
                     HostEvent::LoadScript { name, chunk } => {
-                        self.load_script(lua, &name, &chunk)?
+                        self.load_script(lua, &name, &chunk)?;
+                        self.tx.send(ScriptEvent::Loaded)?
                     }
                     HostEvent::Discover(device_names) => lua.on_discover(&device_names)?,
                     HostEvent::Connect(device_name) => {
@@ -95,22 +97,19 @@ impl ScriptController {
         lua.load_stop(name.to_owned(), self.tx.clone())?;
         lua.load_chunk(API)?;
         lua.load_chunk(chunk)?;
-        log::info!("script loaded : {name}");
+        log::trace!("script loaded : {name}");
         lua.on_start()
     }
 
     fn stop_script(&mut self, lua: &mut LuaRuntime) -> anyhow::Result<()> {
         lua.on_stop()?;
         let _ = lua.release_script();
+        log::trace!("script released");
         Ok(())
     }
 
     fn handle_midi(&mut self, lua: &LuaRuntime, midi: MidiData) -> anyhow::Result<()> {
-        let device_name = if self.device_name.is_some() {
-            self.device_name.as_ref().unwrap().as_str()
-        } else {
-            ""
-        };
+        let device_name = self.device_name.as_ref().map_or("", |s| s.as_str());
 
         if lua
             .on_midi(device_name, midi.bytes.as_slice())?

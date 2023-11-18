@@ -4,91 +4,54 @@ use std::io::Write;
 use std::path::Path;
 
 fn main() {
-    inject_lua_files();
     generate_c_header();
+    inject_lua_scripts();
 }
 
 fn generate_c_header() {
-    let aud_lib = env::var("CARGO_MANIFEST_DIR").unwrap();
+    const HEADER_PATH: &str = "include/aud.h";
 
     cbindgen::Builder::new()
-        .with_crate(aud_lib)
+        .with_crate(env::var("CARGO_MANIFEST_DIR").unwrap())
         .with_language(cbindgen::Language::C)
         .with_pragma_once(false)
         .with_include_guard("AUD_LIB_BINDINGS")
         .with_no_includes()
         .generate()
-        .expect("Unable to generate bindings")
-        .write_to_file("include/aud.h");
-    println!("cargo:rerun-if-changed=include/aud.h");
+        .expect("Unable to generate C header")
+        .write_to_file(HEADER_PATH);
+
+    println!("cargo:rerun-if-changed={HEADER_PATH}");
 }
 
-fn inject_lua_files() {
-    let aud_lib = env::var("CARGO_MANIFEST_DIR").unwrap();
-    let prj_dir = Path::new(&aud_lib).join("../..");
+/// We're injecting the .lua API and DOCS into the library
+/// so that we can ensure coherency between this library
+/// version and the API/DOCS. Doing this in the build
+/// script allows the logic to only rerun if the API/DOCS.lua
+/// actually changed which is faster than using `include_str!`
+fn inject_lua_scripts() {
+    let prj_dir = Path::new(&env::var("CARGO_MANIFEST_DIR").unwrap()).join("../..");
+    let out_dir = Path::new(&env::var("OUT_DIR").unwrap()).join(env!("AUD_IMPORTED_LUA_RS"));
+    let mut file = File::create(out_dir).unwrap();
 
-    // We're injecting the .lua API and DOCS into the library
-    // so that we can ensure coherency between this library
-    // version and the API/DOCS. Doing this in the build
-    // script allows the logic to only rerun if the API/DOCS.lua
-    // actually changed which is faster than using `include_str!`
-    creates_tables_from_sources(&[
-        Module {
-            name: "auscope",
-            sources: &[
-                Source {
-                    name: "API",
-                    path: &prj_dir.join("lua/api/auscope/api.lua"),
-                },
-                Source {
-                    name: "DOCS",
-                    path: &prj_dir.join("lua/api/auscope/docs.lua"),
-                },
-            ],
-        },
-        Module {
-            name: "midimon",
-            sources: &[
-                Source {
-                    name: "API",
-                    path: &prj_dir.join("lua/api/midimon/api.lua"),
-                },
-                Source {
-                    name: "DOCS",
-                    path: &prj_dir.join("lua/api/midimon/docs.lua"),
-                },
-            ],
-        },
-    ]);
-}
+    for cmd in ["auscope", "midimon"] {
+        writeln!(file, "pub mod {} {{", cmd).unwrap();
 
-struct Source<'a> {
-    name: &'a str,
-    path: &'a Path,
-}
+        let apis = prj_dir.join(format!("lua/api/{cmd}/api.lua"));
+        inject_script(&mut file, "API", &apis);
 
-struct Module<'a> {
-    name: &'a str,
-    sources: &'a [Source<'a>],
-}
+        let docs = prj_dir.join(format!("lua/api/{cmd}/docs.lua"));
+        inject_script(&mut file, "DOCS", &docs);
 
-fn creates_tables_from_sources(modules: &[Module<'_>]) {
-    let out_dir = env::var("OUT_DIR").unwrap();
-    let filename = env::var("AUD_IMPORTED_LUA_RS").unwrap();
-    let mut f = File::create(Path::new(&out_dir).join(filename)).unwrap();
-
-    for module in modules {
-        writeln!(f, "pub mod {} {{", module.name).unwrap();
-
-        for source in module.sources {
-            let Ok(content) = std::fs::read_to_string(source.path) else {
-                panic!("Could not read file : {}", source.path.display());
-            };
-
-            writeln!(f, "pub const {}: &str = r#\"{}\"#;", source.name, content).unwrap();
-            println!("cargo:rerun-if-changed={}", source.path.display());
-        }
-
-        writeln!(f, "}}\n").unwrap();
+        writeln!(file, "}}\n").unwrap();
     }
+}
+
+fn inject_script(file: &mut File, name: &str, path: &Path) {
+    let content = std::fs::read_to_string(path)
+        .unwrap_or_else(|_| format!("Could not read file : {}", path.display()));
+
+    writeln!(file, "pub const {}: &str = r#\"{}\"#;", name, content).unwrap();
+
+    println!("cargo:rerun-if-changed={}", path.display());
 }

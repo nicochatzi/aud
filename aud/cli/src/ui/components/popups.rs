@@ -1,4 +1,4 @@
-use crate::widgets;
+use crate::ui::widgets;
 use ratatui::prelude::*;
 use std::collections::BTreeMap;
 

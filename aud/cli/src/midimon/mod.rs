@@ -1,12 +1,11 @@
-mod app;
-mod lua;
 mod ui;
 
-use aud_ui::widgets::midi::MidiMessageString;
+use crate::ui::widgets::midi::MidiMessageString;
+use aud::midi::HostedMidiReceiver;
 use ratatui::prelude::*;
 
-type MidimonApp = app::App;
-type MidimonEvent = app::AppEvent;
+type MidimonApp = aud::apps::midimon::App;
+type MidimonEvent = aud::apps::midimon::AppEvent;
 
 struct TerminalApp {
     ui: ui::Ui,
@@ -15,7 +14,8 @@ struct TerminalApp {
 
 impl Default for TerminalApp {
     fn default() -> Self {
-        let app = MidimonApp::default();
+        let midi_in = Box::<HostedMidiReceiver>::default();
+        let app = MidimonApp::new(midi_in);
         let mut ui = ui::Ui::default();
         ui.update_port_names(app.ports());
         Self { ui, app }
@@ -25,6 +25,7 @@ impl Default for TerminalApp {
 impl crate::app::Base for TerminalApp {
     fn update(&mut self) -> anyhow::Result<crate::app::Flow> {
         self.app.process_midi_messages();
+        self.app.process_engine_events();
 
         if matches!(self.app.process_script_events()?, MidimonEvent::Stopping) {
             return Ok(crate::app::Flow::Exit);
@@ -96,16 +97,20 @@ pub struct Options {
     script: Option<std::path::PathBuf>,
 }
 
-pub fn run(terminal: &mut Terminal<impl Backend>, opts: Options) -> anyhow::Result<()> {
-    if let Some(log_file) = opts.log.or(crate::locations::log_file("midimon")) {
-        crate::logger::start("midimon", log_file)?;
+pub fn run(
+    terminal: &mut Terminal<impl Backend>,
+    opts: Options,
+    common_opts: crate::CommonOptions,
+) -> anyhow::Result<()> {
+    if let Some(log_file) = opts.log.or_else(|| crate::locations::log_file("midimon")) {
+        crate::logger::start("midimon", log_file, common_opts.verbose)?;
     }
 
     let mut app = TerminalApp::default();
 
     let scripts = opts
         .script
-        .or(crate::locations::lua::examples_for("midimon"));
+        .or_else(|| crate::locations::lua::examples_for("midimon"));
 
     if let Some(script) = scripts {
         log::info!("{:#?}", script.canonicalize()?);

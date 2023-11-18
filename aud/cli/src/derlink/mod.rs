@@ -1,10 +1,10 @@
-mod app;
 mod ui;
 
+use aud::apps::derlink::App;
 use crossterm::event::KeyCode;
 use ratatui::prelude::*;
 
-type DerlinkApp = app::App;
+type DerlinkApp = App;
 
 #[derive(Default)]
 struct TerminalApp {
@@ -70,9 +70,13 @@ pub struct Options {
     fps: f32,
 }
 
-pub fn run(terminal: &mut Terminal<impl Backend>, opts: Options) -> anyhow::Result<()> {
-    if let Some(log_file) = opts.log.or(crate::locations::log_file("derlink")) {
-        crate::logger::start("derlink", log_file)?;
+pub fn run(
+    terminal: &mut Terminal<impl Backend>,
+    opts: Options,
+    common_opts: crate::CommonOptions,
+) -> anyhow::Result<()> {
+    if let Some(log_file) = opts.log.or_else(|| crate::locations::log_file("derlink")) {
+        crate::logger::start("derlink", log_file, common_opts.verbose)?;
     }
 
     let mut app = TerminalApp::default();

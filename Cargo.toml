@@ -1,6 +1,15 @@
 [workspace]
-members = ["aud/cli", "aud/lib", "aud/ui"]
+members = ["aud/cli", "aud/lib"]
 resolver = "2"
+
+[workspace.lints.rust]
+unused_extern_crates = "deny"
+rust_2018_idioms = "deny"
+rust_2021_incompatible_or_patterns = "deny"
+rust_2021_incompatible_closure_captures = "deny"
+
+[workspace.lints.clippy]
+all = "deny"
 
 [profile.release]
 lto = "fat"

@@ -1,13 +1,12 @@
+use crate::ui::{components, widgets};
 use aud::{
+    apps::midimon::App,
     files,
     lua::imported::midimon::{API, DOCS},
 };
-use aud_ui::{components, widgets::midi::MidiMessageString};
 use crossterm::event::KeyCode;
 use ratatui::prelude::*;
 use std::path::Path;
-
-use super::app;
 
 const USAGE: &str = r#"
          ? : display help
@@ -47,7 +46,7 @@ pub struct Ui {
     script_dir: Option<std::path::PathBuf>,
     script_names: Vec<String>,
     cached_script: Option<String>,
-    messages: Vec<MidiMessageString>,
+    messages: Vec<widgets::midi::MidiMessageString>,
 }
 
 impl Default for Ui {
@@ -92,7 +91,7 @@ impl Ui {
         self.cached_script = None;
     }
 
-    pub fn append_messages(&mut self, messages: &mut Vec<MidiMessageString>) {
+    pub fn append_messages(&mut self, messages: &mut Vec<widgets::midi::MidiMessageString>) {
         self.messages.append(messages);
     }
 
@@ -153,7 +152,7 @@ impl Ui {
         Ok(UiEvent::Continue)
     }
 
-    pub fn render(&mut self, f: &mut Frame, app: &app::App) {
+    pub fn render(&mut self, f: &mut Frame, app: &App) {
         let sections = Layout::default()
             .direction(Direction::Vertical)
             .margin(1)
@@ -177,7 +176,7 @@ impl Ui {
             f,
             port_selector_section,
             Selector::Port,
-            aud_ui::title!("ports"),
+            crate::title!("ports"),
             app.ports(),
         );
 
@@ -186,50 +185,49 @@ impl Ui {
                 f,
                 top_sections[1],
                 Selector::Script,
-                &aud_ui::title!("{}", self.script_dir.as_ref().unwrap().to_string_lossy()),
+                &crate::title!("{}", self.script_dir.as_ref().unwrap().to_string_lossy()),
                 &self.script_names,
             )
         }
 
         let selected_port_name = match app.selected_port() {
-            Some(name) => aud_ui::title!("port : {}", name),
+            Some(name) => crate::title!("port : {}", name),
             None => "".to_owned(),
         };
 
         let selected_script_name = match app.selected_script() {
-            Some(name) => aud_ui::title!("script : {}", name),
+            Some(name) => crate::title!("script : {}", name),
             None => "".to_owned(),
         };
 
         let running_state = if app.running() {
-            aud_ui::title!("active")
+            crate::title!("active")
         } else {
-            aud_ui::title!("paused")
+            crate::title!("paused")
         };
 
-        aud_ui::widgets::midi::render_messages(
+        widgets::midi::render_messages(
             f,
             &format!("{running_state}─{selected_port_name}─{selected_script_name}"),
             &self.messages,
             sections[1],
         );
 
+        self.popups.render(f, Popup::Api, crate::title!("api"), API);
         self.popups
-            .render(f, Popup::Api, aud_ui::title!("api"), API);
+            .render(f, Popup::Docs, crate::title!("docs"), DOCS);
         self.popups
-            .render(f, Popup::Docs, aud_ui::title!("docs"), DOCS);
-        self.popups
-            .render(f, Popup::Usage, aud_ui::title!("usage"), USAGE);
+            .render(f, Popup::Usage, crate::title!("usage"), USAGE);
         self.popups.render(
             f,
             Popup::Alert,
-            aud_ui::title!("alert!"),
+            crate::title!("alert!"),
             self.alert_message.as_ref().unwrap_or(&"".to_owned()),
         );
 
         if !self.popups.is_visible(Popup::Script) {
             self.popups
-                .render(f, Popup::Script, aud_ui::title!(""), "No script loaded");
+                .render(f, Popup::Script, crate::title!(""), "No script loaded");
             return;
         }
 

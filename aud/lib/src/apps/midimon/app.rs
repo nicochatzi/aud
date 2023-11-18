@@ -1,12 +1,13 @@
 use super::lua::*;
-use aud::{
+use crate::{
     files,
     lua::{traits::api::*, LuaEngineEvent, LuaEngineHandle},
-    midi::{HostedMidiReceiver, MidiData, MidiReceiving},
+    midi::{MidiData, MidiReceiving},
 };
 use crossbeam::channel::{Receiver, Sender};
 use std::path::{Path, PathBuf};
 
+#[derive(Debug, PartialEq, Eq)]
 pub enum AppEvent {
     Continue,
     Stopping,
@@ -18,7 +19,7 @@ pub struct App {
     host_tx: Sender<HostEvent>,
     script_rx: Receiver<ScriptEvent>,
     lua_handle: LuaEngineHandle,
-    midi_in: HostedMidiReceiver,
+    midi_in: Box<dyn MidiReceiving>,
 
     port_names: Vec<String>,
     selected_port_name: Option<String>,
@@ -31,16 +32,15 @@ pub struct App {
     file_watcher: Option<files::FsWatcher>,
 }
 
-impl Default for App {
-    fn default() -> Self {
+impl App {
+    pub fn new(midi_in: Box<dyn MidiReceiving>) -> Self {
         let (host_tx, host_rx) = crossbeam::channel::bounded::<HostEvent>(1_000);
         let (script_tx, script_rx) = crossbeam::channel::bounded::<ScriptEvent>(1_000);
-        let midi_in = HostedMidiReceiver::default();
 
         Self {
             host_tx,
             script_rx,
-            lua_handle: aud::lua::start_engine(ScriptController::new(script_tx, host_rx)),
+            lua_handle: crate::lua::start_engine(ScriptController::new(script_tx, host_rx)),
             selected_port_name: None,
             port_names: midi_in.list_midi_devices().unwrap(),
             midi_in,
@@ -51,9 +51,7 @@ impl Default for App {
             file_watcher: None,
         }
     }
-}
 
-impl App {
     pub fn running(&self) -> bool {
         self.midi_in.is_midi_stream_active()
     }
@@ -161,7 +159,7 @@ impl App {
             self.connect_to_midi_input(&port)?;
         }
 
-        Ok(AppEvent::ScriptLoaded)
+        Ok(AppEvent::Continue)
     }
 
     pub fn process_midi_messages(&mut self) {
@@ -172,14 +170,19 @@ impl App {
         }
     }
 
+    /// Process all the available script events without blocking.
+    /// This processes all the available events unless the engine:
+    /// - requests to stop the application
+    /// - has just loaded a script
     pub fn process_script_events(&mut self) -> anyhow::Result<AppEvent> {
         while let Ok(script_event) = self.script_rx.try_recv() {
             match script_event {
+                ScriptEvent::Loaded => return Ok(AppEvent::ScriptLoaded),
                 ScriptEvent::Log(request) => self.handle_lua_log_request(request),
                 ScriptEvent::Midi(midi) => self.messages.push(midi),
                 ScriptEvent::Connect(request) => self.handle_lua_connect_request(request)?,
                 ScriptEvent::Control(request) => {
-                    if matches!(self.handle_lua_control_request(request), AppEvent::Stopping) {
+                    if self.handle_lua_control_request(request) == AppEvent::Stopping {
                         return Ok(AppEvent::Stopping);
                     }
                 }
@@ -189,14 +192,13 @@ impl App {
         Ok(AppEvent::Continue)
     }
 
+    /// Process all the available file watcher events without blocking.
     pub fn process_file_events(&mut self) -> anyhow::Result<Option<AppEvent>> {
         let Some(ref watcher) = self.file_watcher else {
             return Ok(None);
         };
 
-        // consume all the events without blocking
-        let events: Vec<_> = watcher.events().try_iter().collect();
-        for event in events {
+        for event in watcher.events().try_iter().collect::<Vec<_>>() {
             if self.has_file_changed(event) {
                 if let Some(script) = self.script_path.clone() {
                     log::trace!("Loaded script has changed on filesystem");
@@ -210,11 +212,12 @@ impl App {
         Ok(None)
     }
 
+    /// Process all the available engine events without blocking.
     pub fn process_engine_events(&mut self) {
         while let Ok(event) = self.lua_handle.events().try_recv() {
             match event {
-                LuaEngineEvent::Panicked => (),
-                LuaEngineEvent::Terminated => (),
+                LuaEngineEvent::Panicked => log::warn!("Lua Engine panicked"),
+                LuaEngineEvent::Terminated => log::info!("Lua Engine terminated"),
             }
         }
     }
@@ -254,6 +257,35 @@ impl App {
             LogApiEvent::Log(msg) => log::info!("{msg}"),
             LogApiEvent::Alert(msg) => self.alert_message = Some(msg),
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn wait_for_script_to_load(
+        &mut self,
+        timeout: std::time::Duration,
+    ) -> anyhow::Result<()> {
+        let start = std::time::Instant::now();
+        while self.process_script_events()? != AppEvent::ScriptLoaded {
+            if start.elapsed() > timeout {
+                anyhow::bail!("Failed to load script in time");
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn wait_for_alert(
+        &mut self,
+        timeout: std::time::Duration,
+    ) -> anyhow::Result<String> {
+        let start = std::time::Instant::now();
+        while start.elapsed() < timeout {
+            let _ = self.process_script_events()?;
+            if self.alert_message.is_some() {
+                return Ok(self.take_alert().unwrap());
+            }
+        }
+        anyhow::bail!("Failed to receive an alert in time");
     }
 }
 

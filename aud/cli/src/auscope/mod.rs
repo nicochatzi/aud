@@ -1,19 +1,18 @@
-mod app;
 mod ui;
 
-use aud::audio::HostAudioInput;
+use std::net::UdpSocket;
+
+use aud::{apps::auscope::*, audio::*, comms::Sockets};
 use ratatui::prelude::*;
 
-type AuscopeApp = app::App<HostAudioInput>;
-
 struct TerminalApp {
-    app: AuscopeApp,
+    app: App,
     ui: ui::Ui,
 }
 
-impl Default for TerminalApp {
-    fn default() -> Self {
-        let app = AuscopeApp::with_audio_receiver(HostAudioInput::default());
+impl TerminalApp {
+    fn new(audio_provider: Box<dyn AudioProvider>) -> Self {
+        let app = App::with_audio_receiver(audio_provider);
         let mut ui = ui::Ui::default();
         ui.update_device_names(app.devices());
 
@@ -61,28 +60,54 @@ pub struct Options {
     #[arg(long)]
     script: Option<std::path::PathBuf>,
 
-    /// Fetch audio from this remote address,
-    /// defaults to localhost.
-    /// if neither ports nor address flags are specified
-    /// this command uses your local audio host
-    #[arg(long)]
-    address: Option<String>,
+    /// Flag to activate remote audio reception.
+    /// By default the app uses the system audio device
+    #[arg(long, default_value_t = false)]
+    remote: bool,
 
-    /// Fetch audio using these ports,
-    /// defaults to "8080,8081" if an address
-    /// is supplied but no ports.
-    /// if neither ports nor address flags are specified
-    /// this command uses your local audio host
-    #[arg(long)]
-    ports: Option<String>,
+    /// Fetch audio from this remote address
+    #[arg(long, default_value = "127.0.0.1")]
+    address: String,
+
+    /// Fetch audio using these ports
+    #[arg(long, default_value = "8080,8081")]
+    ports: String,
 }
 
-pub fn run(terminal: &mut Terminal<impl Backend>, opts: Options) -> anyhow::Result<()> {
-    if let Some(log_file) = opts.log.or(crate::locations::log_file("auscope")) {
-        crate::logger::start("auscope", log_file)?;
+fn create_remote_audio_provider(address: String, ports: String) -> Box<dyn AudioProvider> {
+    let (in_port, out_port) = ports.split_at(
+        ports
+            .find(|c| c == ',')
+            .expect("Invalid ports syntax. Use comma seperate"),
+    );
+
+    let sockets = Sockets {
+        socket: UdpSocket::bind(format!("{address}:{out_port}")).unwrap(),
+        target: format!("{address}:{in_port}").parse().unwrap(),
+    };
+
+    let provider =
+        RemoteAudioProvider::new(sockets).expect("failed to create remote audio receiver");
+
+    Box::new(provider)
+}
+
+pub fn run(
+    terminal: &mut Terminal<impl Backend>,
+    opts: Options,
+    common_opts: crate::CommonOptions,
+) -> anyhow::Result<()> {
+    if let Some(log_file) = opts.log.or_else(|| crate::locations::log_file("auscope")) {
+        crate::logger::start("auscope", log_file, common_opts.verbose)?;
     }
 
-    let mut app = TerminalApp::default();
+    let audio_provider = if opts.remote {
+        create_remote_audio_provider(opts.address, opts.ports)
+    } else {
+        Box::<HostAudioInput>::default()
+    };
+
+    let mut app = TerminalApp::new(audio_provider);
 
     let scripts = opts
         .script

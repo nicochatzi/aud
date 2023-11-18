@@ -29,7 +29,11 @@ impl LuaRuntime {
 
     pub fn load_file(&mut self, script: impl AsRef<Path>) -> anyhow::Result<()> {
         let script = script.as_ref();
-        let is_lua_file = script.exists() && script.is_file() && script.ends_with(".lua");
+
+        let is_lua_file = script.exists()
+            && script.is_file()
+            && script.extension().is_some_and(|ext| ext == "lua");
+
         if !is_lua_file {
             anyhow::bail!("Invalid Lua script path : {}", script.display());
         }

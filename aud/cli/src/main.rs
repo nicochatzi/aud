@@ -1,15 +1,32 @@
-use aud_cli::{terminal::with_terminal, *};
-use clap::{CommandFactory, Parser, Subcommand};
-use std::io::Write;
+mod auscope;
+mod derlink;
+mod midimon;
+mod ui;
+mod utils;
+pub use utils::*;
 
-#[derive(Debug, Parser)]
+use clap::{Args, CommandFactory, Parser, Subcommand};
+use std::io::Write;
+use utils::terminal::with_terminal;
+
+#[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
+    #[command(flatten)]
+    opts: CommonOptions,
+
     #[command(subcommand)]
     command: Commands,
 }
 
-#[derive(Debug, Subcommand)]
+#[derive(Args, Debug)]
+pub struct CommonOptions {
+    /// Log verbosity level
+    #[arg(long, default_value_t = false)]
+    verbose: bool,
+}
+
+#[derive(Subcommand, Debug)]
 enum Commands {
     /// MIDI input monitor
     Midimon(midimon::Options),
@@ -53,9 +70,9 @@ fn main() -> anyhow::Result<()> {
     }
 
     let app_result = with_terminal(move |term| match args.command {
-        Commands::Midimon(opts) => midimon::run(term, opts),
-        Commands::Derlink(opts) => derlink::run(term, opts),
-        Commands::Auscope(opts) => auscope::run(term, opts),
+        Commands::Midimon(opts) => midimon::run(term, opts, args.opts),
+        Commands::Derlink(opts) => derlink::run(term, opts, args.opts),
+        Commands::Auscope(opts) => auscope::run(term, opts, args.opts),
         Commands::Completions(_) => Ok(()),
     });
 

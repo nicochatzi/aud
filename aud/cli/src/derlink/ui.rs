@@ -1,5 +1,5 @@
-use super::app;
-use aud_ui::widgets;
+use crate::ui::widgets;
+use aud::apps::derlink::App;
 use ratatui::{
     prelude::*,
     widgets::{Block, Borders, Gauge, Paragraph},
@@ -22,7 +22,7 @@ pub struct Ui {
 }
 
 impl Ui {
-    pub fn render(&mut self, f: &mut Frame, app: &mut app::App) {
+    pub fn render(&mut self, f: &mut Frame, app: &mut App) {
         let sections = Layout::default()
             .direction(Direction::Horizontal)
             .margin(1)
@@ -74,7 +74,7 @@ impl Ui {
         f.render_widget(beat_gauge, sections[1]);
 
         if self.show_usage {
-            widgets::popup::render_text(f, aud_ui::title!("usage"), USAGE);
+            widgets::popup::render_text(f, crate::title!("usage"), USAGE);
         }
     }
 }

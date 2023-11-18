@@ -8,30 +8,44 @@ scriptable <code>aud</code>io terminal tools
 <img src="./res/out/scope_loop.gif">
 </p>
 
-🧱 Requires [Rust](https://www.rust-lang.org/tools/install) and [Just](https://github.com/casey/just)
+🧱 `Requires`: [Rust](https://www.rust-lang.org/tools/install) and [Just](https://github.com/casey/just)
 
-🌶️ Scriptable in [Lua](https://www.lua.org/start.html), with `hooks`, `hot-reloading` and `sandboxed panics`
+🌶️ `Scriptable`: in [Lua](https://www.lua.org/start.html), with `hooks`, `hot-reloading` and `sandboxed panics`
 
-🔨 `just install <INSTALL_DIR>`: build `aud` and install it on your system
+🔨 `Install`: `just install <INSTALL_DIR>`: build `aud` and install it on your system
 
-💻 `just setup`: setup development environment for this project
+💻 `Contribute`: `just setup`: setup development environment for this project
 
-📚 [Docs](./doc/readme.md) for all commands
+📚 `Learn`: [Docs](./doc/readme.md) for all commands
 
-## Commands
+<h2 align="center"><code>usage</code></h2>
 
-### `help`
+After installing, you can generate and install terminal auto-completions scripts.
 
 ![aud](./res/out/aud.gif)
 
+<h2 align="center"><code>commands</code></h2>
+
 ### `midimon`
+
+MIDI Monitor:
+- Select a MIDI input device to open the stream
+- Hit `spacebar` to pause.
 
 ![midimon](./res/out/midimon.gif)
 
 ### `auscope`
 
+Audio Oscilloscope:
+
+- Select an audio source to open the stream.
+- Use the core library in Rust (or through C-FFI API) to produce sources.
+- Sources can be sent over UDP.
+
 ![auscope](./res/out/auscope.gif)
 
 ### `derlink`
+
+Ableton Link Client
 
 ![derlink](./res/out/derlink.gif)
