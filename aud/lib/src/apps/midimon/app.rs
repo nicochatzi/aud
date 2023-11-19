@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 pub enum AppEvent {
     Continue,
     Stopping,
-    // ScriptCrash,
+    ScriptCrash,
     ScriptLoaded,
 }
 
@@ -68,12 +68,12 @@ impl App {
         self.alert_message.take()
     }
 
-    pub fn selected_port(&self) -> Option<&String> {
-        self.selected_port_name.as_ref()
+    pub fn selected_port(&self) -> Option<&str> {
+        self.selected_port_name.as_deref()
     }
 
-    pub fn selected_script(&self) -> Option<&String> {
-        self.selected_script_name.as_ref()
+    pub fn selected_script(&self) -> Option<&str> {
+        self.selected_script_name.as_deref()
     }
 
     pub fn loaded_script_path(&self) -> Option<&PathBuf> {
@@ -116,6 +116,7 @@ impl App {
         }
     }
 
+    /// Send a script to be loaded by the scripting engine. This function does not block.
     pub fn load_script(&mut self, script: impl AsRef<Path>) -> anyhow::Result<AppEvent> {
         let script_path = script.as_ref();
         if !script_path.exists() || !script_path.is_file() {
@@ -162,6 +163,38 @@ impl App {
         Ok(AppEvent::Continue)
     }
 
+    /// Load a script and block until the script has been loaded by the engine.
+    pub fn load_script_sync(
+        &mut self,
+        script: impl AsRef<Path>,
+        timeout: std::time::Duration,
+    ) -> anyhow::Result<()> {
+        self.load_script(script)?;
+        let start = std::time::Instant::now();
+        while self.process_script_events()? != AppEvent::ScriptLoaded {
+            if start.elapsed() > timeout {
+                anyhow::bail!("Failed to load script in time");
+            }
+        }
+        Ok(())
+    }
+
+    /// Block while waiting for the script to push an alert back to the app.
+    pub fn wait_for_alert(
+        &mut self,
+        timeout: std::time::Duration,
+    ) -> anyhow::Result<Option<String>> {
+        let start = std::time::Instant::now();
+        while start.elapsed() < timeout {
+            let _ = self.process_script_events()?;
+            if self.alert_message.is_some() {
+                return Ok(self.take_alert());
+            }
+        }
+        Ok(self.take_alert())
+    }
+
+    /// Transfer all received MIDI messages to the engine.
     pub fn process_midi_messages(&mut self) {
         for msg in self.midi_in.produce_midi_messages() {
             if let Err(e) = self.host_tx.send(HostEvent::Midi(msg)) {
@@ -193,33 +226,35 @@ impl App {
     }
 
     /// Process all the available file watcher events without blocking.
-    pub fn process_file_events(&mut self) -> anyhow::Result<Option<AppEvent>> {
+    pub fn process_file_events(&mut self) -> anyhow::Result<AppEvent> {
         let Some(ref watcher) = self.file_watcher else {
-            return Ok(None);
+            return Ok(AppEvent::Continue);
         };
 
         for event in watcher.events().try_iter().collect::<Vec<_>>() {
             if self.has_file_changed(event) {
                 if let Some(script) = self.script_path.clone() {
                     log::trace!("Loaded script has changed on filesystem");
-                    return Ok(Some(self.load_script(script)?));
+                    return self.load_script(script);
                 }
 
                 break;
             }
         }
 
-        Ok(None)
+        Ok(AppEvent::Continue)
     }
 
     /// Process all the available engine events without blocking.
-    pub fn process_engine_events(&mut self) {
+    pub fn process_engine_events(&mut self) -> anyhow::Result<AppEvent> {
         while let Ok(event) = self.lua_handle.events().try_recv() {
             match event {
-                LuaEngineEvent::Panicked => log::warn!("Lua Engine panicked"),
+                LuaEngineEvent::Panicked => return Ok(AppEvent::ScriptCrash),
                 LuaEngineEvent::Terminated => log::info!("Lua Engine terminated"),
             }
         }
+
+        Ok(AppEvent::Continue)
     }
 
     fn has_file_changed(&mut self, event: notify::Result<notify::Event>) -> bool {
@@ -257,35 +292,6 @@ impl App {
             LogApiEvent::Log(msg) => log::info!("{msg}"),
             LogApiEvent::Alert(msg) => self.alert_message = Some(msg),
         }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn wait_for_script_to_load(
-        &mut self,
-        timeout: std::time::Duration,
-    ) -> anyhow::Result<()> {
-        let start = std::time::Instant::now();
-        while self.process_script_events()? != AppEvent::ScriptLoaded {
-            if start.elapsed() > timeout {
-                anyhow::bail!("Failed to load script in time");
-            }
-        }
-        Ok(())
-    }
-
-    #[cfg(test)]
-    pub(crate) fn wait_for_alert(
-        &mut self,
-        timeout: std::time::Duration,
-    ) -> anyhow::Result<String> {
-        let start = std::time::Instant::now();
-        while start.elapsed() < timeout {
-            let _ = self.process_script_events()?;
-            if self.alert_message.is_some() {
-                return Ok(self.take_alert().unwrap());
-            }
-        }
-        anyhow::bail!("Failed to receive an alert in time");
     }
 }
 

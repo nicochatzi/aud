@@ -44,7 +44,7 @@ pub fn run(
             if let Event::Key(key) = crossterm::event::read()? {
                 if key.kind == KeyEventKind::Press {
                     match key.code {
-                        KeyCode::Char('c') if matches!(key.modifiers, KeyModifiers::CONTROL) => {
+                        KeyCode::Char('c') if key.modifiers == KeyModifiers::CONTROL => {
                             return Ok(())
                         }
                         _ => match app.on_keypress(key)? {

@@ -9,24 +9,31 @@ mod test {
     use crate::midi::{MidiData, MidiReceiving};
     use std::time::Duration;
 
-    const MIDI_DEV: &str = "mock-midi-device";
+    const MIDI_DEVICES: &[&str] = &["dev0", "dev1", "dev2"];
     const MIDI_BYTES: &[u8] = &[1, 2, 3];
-    const TIMEOUT: Duration = Duration::from_secs(1);
+    const TIMEOUT: Duration = Duration::from_millis(100);
 
     #[derive(Default)]
-    struct EmptyMidiHost;
-    impl MidiReceiving for EmptyMidiHost {
+    struct MockMidiHost {
+        is_active: bool,
+        messages: Vec<MidiData>,
+    }
+
+    impl MidiReceiving for MockMidiHost {
         fn is_midi_stream_active(&self) -> bool {
-            true
+            self.is_active
         }
 
-        fn set_midi_stream_active(&mut self, _: bool) {}
+        fn set_midi_stream_active(&mut self, should_activate: bool) {
+            self.is_active = should_activate;
+        }
 
         fn list_midi_devices(&self) -> anyhow::Result<Vec<String>> {
-            Ok(vec![MIDI_DEV.into()])
+            Ok(MIDI_DEVICES.iter().map(|s| s.to_string()).collect())
         }
 
-        fn connect_to_midi_device(&mut self, _device_name: &str) -> anyhow::Result<()> {
+        fn connect_to_midi_device(&mut self, device_name: &str) -> anyhow::Result<()> {
+            assert!(MIDI_DEVICES.contains(&device_name));
             Ok(())
         }
 
@@ -39,44 +46,55 @@ mod test {
     }
 
     #[test]
-    fn can_load_a_script_and_receive_an_alert() {
-        let mut app = App::new(Box::<EmptyMidiHost>::default());
-        assert!(app.running());
+    fn is_off_by_default() {
+        let mut app = App::new(Box::<MockMidiHost>::default());
+        assert!(!app.running());
         assert!(app.take_alert().is_none());
 
+        app.set_running(true);
+        assert!(app.running());
+    }
+
+    #[test]
+    fn can_load_a_script_and_receive_an_alert() {
+        let mut app = App::new(Box::<MockMidiHost>::default());
+
         let script = crate::test::fixture("alert_on_load.lua");
-        assert_eq!(app.load_script(script.clone()).unwrap(), AppEvent::Continue);
+        app.load_script_sync(script.clone(), TIMEOUT).unwrap();
         assert_eq!(*app.loaded_script_path().unwrap(), script);
 
-        app.wait_for_script_to_load(TIMEOUT).unwrap();
         assert_eq!(app.process_script_events().unwrap(), AppEvent::Continue);
         assert_eq!(app.take_alert().unwrap(), "loaded");
     }
 
     #[test]
     fn can_call_into_scripts_through_hooks() {
-        let mut app = App::new(Box::<EmptyMidiHost>::default());
-        assert!(app.running());
-        assert!(app.take_alert().is_none());
+        let mut app = App::new(Box::<MockMidiHost>::default());
 
         let script = crate::test::fixture("alert_in_hooks.lua");
-        assert_eq!(app.load_script(script.clone()).unwrap(), AppEvent::Continue);
+        app.load_script_sync(script.clone(), TIMEOUT).unwrap();
         assert_eq!(*app.loaded_script_path().unwrap(), script);
 
-        app.wait_for_script_to_load(TIMEOUT).unwrap();
         assert_eq!(app.process_script_events().unwrap(), AppEvent::Continue);
         assert_eq!(app.take_alert().unwrap(), "on_start");
 
+        let devices = MIDI_DEVICES
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+
         assert_eq!(
-            app.wait_for_alert(TIMEOUT).unwrap(),
-            format!("on_discover:{MIDI_DEV}")
+            app.wait_for_alert(TIMEOUT).unwrap().unwrap(),
+            format!("on_discover:{}", devices)
         );
 
-        app.connect_to_midi_input(MIDI_DEV).unwrap();
+        app.connect_to_midi_input_by_index(0).unwrap();
+        assert_eq!(app.selected_port().unwrap(), MIDI_DEVICES[0]);
 
         assert_eq!(
-            app.wait_for_alert(TIMEOUT).unwrap(),
-            format!("on_connect:{MIDI_DEV}")
+            app.wait_for_alert(TIMEOUT).unwrap().unwrap(),
+            format!("on_connect:{}", MIDI_DEVICES[0])
         );
 
         app.process_midi_messages();
@@ -84,12 +102,25 @@ mod test {
         let bytes = MIDI_BYTES
             .iter()
             .map(|b| b.to_string())
-            .collect::<Vec<String>>()
+            .collect::<Vec<_>>()
             .join(",");
 
         assert_eq!(
-            app.wait_for_alert(TIMEOUT).unwrap(),
-            format!("on_midi:{MIDI_DEV}:{bytes}")
+            app.wait_for_alert(TIMEOUT).unwrap().unwrap(),
+            format!("on_midi:{}:{bytes}", MIDI_DEVICES[0])
         );
+    }
+
+    #[test]
+    fn does_not_panic_when_an_invalid_script_crashes_the_engine() {
+        let mut app = App::new(Box::<MockMidiHost>::default());
+
+        let invalid_script = crate::test::fixture("invalid.lua");
+        app.load_script_sync(invalid_script, TIMEOUT).unwrap_err();
+        assert_eq!(app.process_engine_events().unwrap(), AppEvent::ScriptCrash);
+
+        let valid_script = crate::test::fixture("alert_on_load.lua");
+        app.load_script_sync(valid_script, TIMEOUT).unwrap();
+        assert_eq!(app.process_engine_events().unwrap(), AppEvent::Continue);
     }
 }

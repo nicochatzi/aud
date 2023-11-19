@@ -25,9 +25,9 @@ impl Default for TerminalApp {
 impl crate::app::Base for TerminalApp {
     fn update(&mut self) -> anyhow::Result<crate::app::Flow> {
         self.app.process_midi_messages();
-        self.app.process_engine_events();
+        self.app.process_engine_events()?;
 
-        if matches!(self.app.process_script_events()?, MidimonEvent::Stopping) {
+        if self.app.process_script_events()? == MidimonEvent::Stopping {
             return Ok(crate::app::Flow::Exit);
         }
 
@@ -40,12 +40,7 @@ impl crate::app::Base for TerminalApp {
 
         self.ui.append_messages(&mut messages);
 
-        let was_script_loaded = self
-            .app
-            .process_file_events()?
-            .filter(|e| matches!(e, MidimonEvent::ScriptLoaded));
-
-        if was_script_loaded.is_some() {
+        if self.app.process_file_events()? == MidimonEvent::ScriptLoaded {
             self.ui.clear_script_cache();
         }
 

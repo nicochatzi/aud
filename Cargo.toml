@@ -7,6 +7,7 @@ unused_extern_crates = "deny"
 rust_2018_idioms = "deny"
 rust_2021_incompatible_or_patterns = "deny"
 rust_2021_incompatible_closure_captures = "deny"
+elided-lifetimes-in-paths = "allow"
 
 [workspace.lints.clippy]
 all = "deny"
