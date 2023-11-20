@@ -36,10 +36,12 @@ where
         }
     }
 
+    #[allow(unused)]
     pub fn focus(&mut self, selector: Key) {
         self.focused = Some(selector);
     }
 
+    #[allow(unused)]
     pub fn focused(&self) -> Option<Key> {
         self.focused
     }

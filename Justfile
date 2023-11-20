@@ -51,7 +51,7 @@ tape:
 	parallel --ungroup vhs ::: res/vhs/*
 
 # tail a log file - request `bat`
-log FILE='~/.aud/log/aud.log':
+log FILE='./out/aud.log':
 	# log highlighting is available but yaml looks nicer
 	tail -n5 -f {{FILE}} | bat --paging=never -l=yaml --style=plain
 

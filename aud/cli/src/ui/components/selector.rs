@@ -35,6 +35,7 @@ impl Selector {
         }
     }
 
+    #[allow(unused)]
     pub fn resize(&mut self, new_len: usize, selection: Option<usize>) {
         self.state.select(selection);
         self.selection = selection;
