@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use super::*;
 use cpal::{traits::*, FromSample, Sample, SizedSample};
-use crossbeam::channel::{Receiver, Sender, TryRecvError};
+use crossbeam::channel::{Receiver, Sender};
 
 pub struct HostAudioInput {
     host: cpal::Host,
@@ -16,7 +16,7 @@ pub struct HostAudioInput {
 
 impl Default for HostAudioInput {
     fn default() -> Self {
-        let (sender, receiver) = crossbeam::channel::bounded(16);
+        let (sender, receiver) = crossbeam::channel::bounded(128);
         let host = cpal::default_host();
         let devices = match host.input_devices() {
             Ok(devices) => devices.filter_map(AudioDevice::try_from_input).collect(),
@@ -80,15 +80,13 @@ impl AudioInterface for HostAudioInput {
     }
 
     fn process_audio_events(&mut self) -> anyhow::Result<()> {
-        match self.receiver.try_recv() {
-            Ok(mut audio) => {
-                self.audio.num_channels = audio.num_channels;
-                self.audio.data.append(&mut audio.data)
+        for mut buffer in self.receiver.try_iter() {
+            if buffer.num_channels != self.audio.num_channels {
+                self.audio = buffer;
+            } else {
+                self.audio.data.append(&mut buffer.data);
             }
-            Err(TryRecvError::Empty) => (),
-            Err(e) => return Err(e.into()),
         }
-
         Ok(())
     }
 }

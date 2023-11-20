@@ -12,11 +12,23 @@ struct TerminalApp {
 
 impl TerminalApp {
     fn new(audio_provider: Box<dyn AudioProvider>) -> Self {
-        let app = App::with_audio_receiver(audio_provider);
+        let app = App::new(audio_provider);
         let mut ui = ui::Ui::default();
         ui.update_device_names(app.devices());
-
         Self { app, ui }
+    }
+
+    fn try_connect_to_audio_input(&mut self, index: usize) -> anyhow::Result<()> {
+        let Some(device) = self.app.devices().get(index) else {
+            log::warn!(
+                "Invalid device index selection {index}, with {} devices",
+                self.app.devices().len()
+            );
+            return Ok(());
+        };
+
+        self.app
+            .connect_to_audio_input(&device.clone(), AudioChannelSelection::Mono(0))
     }
 }
 
@@ -30,9 +42,9 @@ impl crate::app::Base for TerminalApp {
         match self.ui.on_keypress(key) {
             ui::UiEvent::Continue => Ok(crate::app::Flow::Continue),
             ui::UiEvent::Exit => Ok(crate::app::Flow::Exit),
-            ui::UiEvent::Select { id, .. } => match id {
+            ui::UiEvent::Select { id, index } => match id {
                 ui::Selector::Device => {
-                    // self.app.connect_to_audio_input(index)?;
+                    self.try_connect_to_audio_input(index)?;
                     Ok(crate::app::Flow::Continue)
                 }
                 ui::Selector::Script => Ok(crate::app::Flow::Continue),

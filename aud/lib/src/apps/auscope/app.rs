@@ -12,14 +12,16 @@ pub struct App {
     buffer: AudioBuffer,
     receiver: Box<dyn AudioProvider>,
     device: Option<AudioDevice>,
+    num_received: usize,
 }
 
 impl App {
-    pub fn with_audio_receiver(audio_receiver: Box<dyn AudioProvider>) -> Self {
+    pub fn new(audio_receiver: Box<dyn AudioProvider>) -> Self {
         Self {
             buffer: AudioBuffer::default(),
             receiver: audio_receiver,
             device: None,
+            num_received: 0,
         }
     }
 
@@ -60,8 +62,17 @@ impl App {
         self.receiver.process_audio_events()?;
 
         let mut audio = self.receiver.retrieve_audio_buffer();
-        debug_assert_eq!(self.buffer.num_channels, audio.num_channels);
-        self.buffer.data.append(&mut audio.data);
+
+        if !audio.data.is_empty() {
+            log::info!("num received {}", self.num_received);
+            self.num_received += 1;
+        }
+
+        if self.buffer.num_channels != audio.num_channels {
+            self.buffer = audio;
+        } else {
+            self.buffer.data.append(&mut audio.data);
+        }
 
         Ok(())
     }

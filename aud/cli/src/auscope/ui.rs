@@ -160,11 +160,14 @@ impl Ui {
             Some(s) => s
                 .selected()
                 .and_then(|index| app.devices().get(index))
-                .map(|device| format!("˧ {} ꜔", device.name))
+                .map(|device| crate::title!("{}", device.name))
                 .unwrap_or_else(|| "".to_owned()),
             None => "".to_owned(),
         };
 
-        widgets::scope::render(f, sections[1], &selected_device_name, app.audio_mut());
+        let audio = app.audio_mut();
+        let num_samples_rendered =
+            widgets::scope::render(f, sections[1], &selected_device_name, audio);
+        let _ = audio.data.drain(0..num_samples_rendered);
     }
 }

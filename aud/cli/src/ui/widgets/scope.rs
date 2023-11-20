@@ -43,7 +43,7 @@ fn create_datasets(data: &[ChannelData]) -> Vec<Dataset> {
         .collect()
 }
 
-pub fn render(f: &mut Frame, area: Rect, title: &str, audio: &AudioBuffer) {
+pub fn render(f: &mut Frame, area: Rect, title: &str, audio: &AudioBuffer) -> usize {
     let data = prepare_audio_data(audio);
     let datasets = create_datasets(&data);
 
@@ -67,4 +67,5 @@ pub fn render(f: &mut Frame, area: Rect, title: &str, audio: &AudioBuffer) {
         );
 
     f.render_widget(chart, area);
+    data.iter().map(Vec::len).sum()
 }
