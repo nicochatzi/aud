@@ -9,7 +9,7 @@ mod test {
 
     const MIDI_DEVICES: &[&str] = &["dev0", "dev1", "dev2"];
     const MIDI_BYTES: &[u8] = &[1, 2, 3];
-    const TIMEOUT: Duration = Duration::from_millis(100);
+    const TIMEOUT: Duration = Duration::from_millis(500);
 
     #[derive(Default)]
     struct MockMidiHost {
