@@ -12,11 +12,9 @@ scriptable <code>aud</code>io terminal tools
 
 🌶️ `Scriptable`: in [Lua](https://www.lua.org/start.html), with `hooks`, `hot-reloading` and `sandboxed panics`
 
-🔨 `Install`: `just install <INSTALL_DIR>`: build `aud` and install it on your system
+🔨 `Install`: `just install <INSTALL_DIR>`: build and install `aud` on your system
 
 💻 `Contribute`: `just setup`: setup development environment for this project
-
-📚 `Learn`: [Docs](./doc/readme.md) for all commands
 
 <h2 align="center"><code>usage</code></h2>
 
@@ -28,24 +26,22 @@ After installing, you can generate and install terminal auto-completions scripts
 
 ### `midimon`
 
-MIDI Monitor:
-- Select a MIDI input device to open the stream
-- Hit `spacebar` to pause.
+Scriptable MIDI Monitor.
 
 ![midimon](./res/out/midimon.gif)
 
 ### `auscope`
 
-Audio Oscilloscope:
+Scriptable Audio Oscilloscope.
 
-- Select an audio source to open the stream.
-- Use the core library in Rust (or through C-FFI API) to produce sources.
-- Sources can be sent over UDP.
+By default `auscope` lists the host machine's audio devices.
+`aud_lib` can integrated in other applications (Rust or through C-FFI)
+to generate sources and send them over UDP to an `auscope` instance.
 
 ![auscope](./res/out/auscope.gif)
 
 ### `derlink`
 
-Ableton Link Client
+Simple Ableton Link Client.
 
 ![derlink](./res/out/derlink.gif)

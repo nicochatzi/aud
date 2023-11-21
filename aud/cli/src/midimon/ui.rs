@@ -1,9 +1,5 @@
 use crate::ui::{components, widgets};
-use aud::{
-    apps::midimon::App,
-    files,
-    lua::imported::midimon::{API, DOCS},
-};
+use aud::{apps::midimon::App, files};
 use crossterm::event::KeyCode;
 use ratatui::prelude::*;
 use std::path::Path;
@@ -18,7 +14,6 @@ const USAGE: &str = r#"
  <DOWN>, j : scroll down
  <LEFT>, h : cycle panes left
 <RIGHT>, l : cycle panes right
- <DOWN>, j : scroll down
      Enter : confirm selection
   <ESC>, q : quit or hide popup
      <C-c> : force quit
@@ -213,11 +208,23 @@ impl Ui {
             sections[1],
         );
 
-        self.popups.render(f, Popup::Api, crate::title!("api"), API);
-        self.popups
-            .render(f, Popup::Docs, crate::title!("docs"), DOCS);
+        self.popups.render(
+            f,
+            Popup::Api,
+            crate::title!("api"),
+            aud::lua::imported::midimon::API,
+        );
+
+        self.popups.render(
+            f,
+            Popup::Docs,
+            crate::title!("docs"),
+            aud::lua::imported::midimon::DOCS,
+        );
+
         self.popups
             .render(f, Popup::Usage, crate::title!("usage"), USAGE);
+
         self.popups.render(
             f,
             Popup::Alert,

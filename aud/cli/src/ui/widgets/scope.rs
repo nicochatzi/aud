@@ -19,6 +19,7 @@ fn prepare_audio_data(
     audio: &AudioBuffer,
     downsample: usize,
     num_samples_to_render: usize,
+    gain: f32,
 ) -> Vec<SamplePoints> {
     let num_channels = audio.num_channels.min(1) as usize;
     let audio = dsp::deinterleave(&audio.data, num_channels);
@@ -31,7 +32,7 @@ fn prepare_audio_data(
             .step_by(num_channels)
             .step_by(downsample)
             .enumerate()
-            .map(|(i, &sample)| (i as f64, sample as f64))
+            .map(|(i, &sample)| (i as f64, (sample * gain) as f64))
             .collect();
         channels.push(data);
     }
@@ -51,10 +52,17 @@ fn create_datasets(data: &[SamplePoints]) -> Vec<Dataset> {
         .collect()
 }
 
-pub fn render(f: &mut Frame, area: Rect, title: &str, audio: &AudioBuffer, downsample: usize) {
+pub fn render(
+    f: &mut Frame,
+    area: Rect,
+    title: &str,
+    audio: &AudioBuffer,
+    downsample: usize,
+    gain: f32,
+) {
     let width = f.size().width as usize;
     let num_samples_to_render = (audio.num_frames() / downsample).min(width);
-    let data = prepare_audio_data(audio, downsample, num_samples_to_render);
+    let data = prepare_audio_data(audio, downsample, num_samples_to_render, gain);
 
     let datasets = create_datasets(&data);
 

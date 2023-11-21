@@ -1,6 +1,9 @@
+use std::path::Path;
+
 use crate::{
     audio::*,
     comms::{SocketInterface, Sockets},
+    lua::{imported, HostEvent, ScriptController},
 };
 use crossbeam::channel;
 
@@ -8,23 +11,47 @@ pub trait AudioProvider: AudioProviding + AudioInterface {}
 
 impl<T> AudioProvider for T where T: AudioProviding + AudioInterface {}
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum AppEvent {
+    Continue,
+    Stopping,
+    ScriptCrash,
+    ScriptLoaded,
+}
+
 pub struct App {
     buffer: AudioBuffer,
     receiver: Box<dyn AudioProvider>,
-    device: Option<AudioDevice>,
+    selected_device: Option<AudioDevice>,
+    selected_channels: Option<AudioChannelSelection>,
+    selected_script_name: Option<String>,
+    script: ScriptController,
+    alert_message: Option<String>,
 }
 
 impl App {
     pub fn new(audio_receiver: Box<dyn AudioProvider>) -> Self {
         Self {
             buffer: AudioBuffer::default(),
+            script: ScriptController::start(imported::auscope::API),
             receiver: audio_receiver,
-            device: None,
+            selected_device: None,
+            selected_channels: None,
+            selected_script_name: None,
+            alert_message: None,
         }
     }
 
     pub fn devices(&self) -> &[AudioDevice] {
         self.receiver.list_audio_devices()
+    }
+
+    pub fn take_alert(&mut self) -> Option<String> {
+        self.alert_message.take()
+    }
+
+    pub fn audio(&self) -> &AudioBuffer {
+        &self.buffer
     }
 
     pub fn audio_mut(&mut self) -> &mut AudioBuffer {
@@ -35,14 +62,22 @@ impl App {
         &mut self,
         channel_selection: AudioChannelSelection,
     ) -> anyhow::Result<()> {
-        let Some(ref audio_device) = self.device else {
+        let Some(ref audio_device) = self.selected_device else {
             anyhow::bail!("No audio device selected");
         };
 
         self.buffer.data.clear();
         self.receiver
-            .connect_to_audio_device(audio_device, channel_selection)?;
-        self.device = Some(audio_device.clone());
+            .connect_to_audio_device(audio_device, channel_selection.clone())?;
+        self.selected_channels = Some(channel_selection);
+
+        if let Err(e) = self
+            .script
+            .try_send(HostEvent::Connect(audio_device.name.clone()))
+        {
+            log::error!("Failed to send device connected event to runtime : {e}");
+        }
+
         Ok(())
     }
 
@@ -51,7 +86,7 @@ impl App {
         audio_device: &AudioDevice,
         channel_selection: AudioChannelSelection,
     ) -> anyhow::Result<()> {
-        self.device = Some(audio_device.clone());
+        self.selected_device = Some(audio_device.clone());
         self.buffer.num_channels = channel_selection.count() as u32;
         self.update_channel_selection(channel_selection)
     }
@@ -68,6 +103,35 @@ impl App {
         }
 
         Ok(())
+    }
+
+    pub fn load_script(&mut self, script: impl AsRef<Path>) -> anyhow::Result<AppEvent> {
+        let script = script.as_ref();
+        self.script.load(script)?;
+
+        self.selected_script_name = Some(
+            script
+                .file_name()
+                .unwrap_or_default()
+                .to_str()
+                .unwrap_or_default()
+                .to_owned(),
+        );
+
+        if let Err(e) = self.script.try_send(HostEvent::Discover(
+            self.devices().iter().map(|dev| dev.name.clone()).collect(),
+        )) {
+            log::error!("failed to send discovery event : {e}");
+        }
+
+        if self.selected_device.is_some() && self.selected_channels.is_some() {
+            self.connect_to_audio_input(
+                &self.selected_device.as_ref().unwrap().clone(),
+                self.selected_channels.as_ref().unwrap().clone(),
+            )?;
+        }
+
+        Ok(AppEvent::Continue)
     }
 }
 

@@ -1,9 +1,8 @@
 mod ui;
 
-use std::net::UdpSocket;
-
 use aud::{apps::auscope::*, audio::*, comms::Sockets};
 use ratatui::prelude::*;
+use std::net::UdpSocket;
 
 struct TerminalApp {
     app: App,
@@ -21,15 +20,13 @@ impl TerminalApp {
 
     fn try_connect_to_audio_input(&mut self, index: usize) -> anyhow::Result<()> {
         let Some(device) = self.app.devices().get(index) else {
-            log::warn!(
-                "Invalid device index selection {index}, with {} devices",
-                self.app.devices().len()
-            );
+            let num_devices = self.app.devices().len();
+            log::warn!("Invalid device index selection {index}, with {num_devices} devices",);
             return Ok(());
         };
 
-        self.app
-            .connect_to_audio_input(&device.clone(), AudioChannelSelection::Mono(0))
+        let channels = AudioChannelSelection::Mono(0);
+        self.app.connect_to_audio_input(&device.clone(), channels)
     }
 }
 
@@ -50,11 +47,21 @@ impl crate::app::Base for TerminalApp {
                 }
                 ui::Selector::Script => Ok(crate::app::Flow::Continue),
             },
+            ui::UiEvent::LoadScript(index) => {
+                self.try_connect_to_audio_input(index)?;
+                Ok(crate::app::Flow::Continue)
+            }
         }
     }
 
     fn render(&mut self, f: &mut Frame) {
-        self.ui.render(f, &mut self.app, self.fps);
+        if let Some(alert) = self.app.take_alert() {
+            self.ui.show_alert_message(&alert);
+        }
+
+        self.ui.render(f, &self.app);
+        self.ui
+            .remove_offscreen_samples(&mut self.app, f.size().width as usize, self.fps);
     }
 }
 
@@ -99,10 +106,7 @@ fn create_remote_audio_provider(address: String, ports: String) -> Box<dyn Audio
         target: format!("{address}:{in_port}").parse().unwrap(),
     };
 
-    let provider =
-        RemoteAudioProvider::new(sockets).expect("failed to create remote audio receiver");
-
-    Box::new(provider)
+    Box::new(RemoteAudioProvider::new(sockets).unwrap())
 }
 
 pub fn run(

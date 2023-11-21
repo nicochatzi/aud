@@ -2,8 +2,8 @@ Output res/out/auscope.gif
 
 Set FontSize 24
 Set FontFamily "JetBrains Mono"
-Set Width 2400
-Set Height 600
+Set Width 2200
+Set Height 800
 
 Type "aud auscope"
 Sleep 500ms

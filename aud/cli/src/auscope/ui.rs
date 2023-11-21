@@ -1,17 +1,21 @@
 use crate::ui::{components, widgets};
-use aud::{
-    apps::auscope::App,
-    audio::AudioDevice,
-    files,
-    lua::imported::auscope::{API, DOCS},
-};
+use aud::{apps::auscope::App, audio::AudioDevice, files};
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::prelude::*;
 
 const USAGE: &str = r#"
          ? : display help
+         a : display API
+         s : display script
+         d : display docs
+         K : increase gain
+         J : decrease gain
+         H : zoom out
+         L : zoom in
    <UP>, k : scroll up
  <DOWN>, j : scroll down
+ <LEFT>, h : cycle panes left
+<RIGHT>, l : cycle panes right
      Enter : confirm selection
   <ESC>, q : quit or hide help
      <C-c> : force quit
@@ -34,8 +38,9 @@ pub enum Selector {
 
 pub enum UiEvent<Id> {
     Continue,
-    Exit,
     Select { id: Id, index: usize },
+    LoadScript(usize),
+    Exit,
 }
 
 pub struct Ui {
@@ -43,6 +48,9 @@ pub struct Ui {
     selectors: components::Selectors<Selector>,
     script_dir: Option<std::path::PathBuf>,
     script_names: Vec<String>,
+    alert_message: Option<String>,
+    downsample: usize,
+    gain: f32,
 }
 
 impl Default for Ui {
@@ -58,11 +66,16 @@ impl Default for Ui {
             selectors: components::Selectors::new(&[Selector::Device, Selector::Script]),
             script_dir: None,
             script_names: vec![],
+            alert_message: None,
+            downsample: 16,
+            gain: 1.,
         }
     }
 }
 
 impl Ui {
+    const SAMPLE_RATE: usize = 48000;
+
     pub fn update_script_dir(&mut self, dir: impl AsRef<std::path::Path>) -> anyhow::Result<()> {
         let dir = dir.as_ref();
         self.script_names = files::list_with_extension(dir, "lua")?;
@@ -79,24 +92,42 @@ impl Ui {
         };
     }
 
+    fn adjust_gain(&mut self, amount: f32) {
+        self.gain = (self.gain + amount).clamp(0., 16.);
+    }
+
+    fn adjust_downsample(&mut self, amount: isize) {
+        self.downsample = (self.downsample as isize + amount).clamp(16, 4096) as usize;
+    }
+
     pub fn on_keypress(&mut self, key: KeyEvent) -> UiEvent<Selector> {
         match key.code {
             KeyCode::Char('?') => self.popups.toggle_visible(Popup::Usage),
+            KeyCode::Char('a') => self.popups.toggle_visible(Popup::Api),
+            KeyCode::Char('s') => self.popups.toggle_visible(Popup::Script),
+            KeyCode::Char('d') => self.popups.toggle_visible(Popup::Docs),
             KeyCode::Char('q') | KeyCode::Esc => {
                 if !self.popups.any_visible() {
                     return UiEvent::Exit;
                 }
                 self.popups.hide()
             }
-            KeyCode::Down | KeyCode::Char('j') => self.selectors.next_item(),
+            KeyCode::Char('K') => self.adjust_gain(0.1),
+            KeyCode::Char('J') => self.adjust_gain(-0.1),
+            KeyCode::Char('H') => self.adjust_downsample(-16),
+            KeyCode::Char('L') => self.adjust_downsample(16),
             KeyCode::Up | KeyCode::Char('k') => self.selectors.previous_item(),
+            KeyCode::Down | KeyCode::Char('j') => self.selectors.next_item(),
             KeyCode::Left | KeyCode::Char('h') => self.selectors.previous_selector(),
             KeyCode::Right | KeyCode::Char('l') => self.selectors.next_selector(),
             KeyCode::Enter => {
                 if let Some(selection) = self.selectors.select() {
-                    return UiEvent::Select {
-                        id: selection.selector,
-                        index: selection.index,
+                    return match selection.selector {
+                        Selector::Script => UiEvent::LoadScript(selection.index),
+                        Selector::Device => UiEvent::Select {
+                            id: selection.selector,
+                            index: selection.index,
+                        },
                     };
                 }
             }
@@ -106,7 +137,12 @@ impl Ui {
         UiEvent::Continue
     }
 
-    pub fn render(&mut self, f: &mut Frame, app: &mut App, fps: f32) {
+    pub fn show_alert_message(&mut self, alert_message: &str) {
+        self.popups.show(Popup::Alert);
+        self.alert_message = Some(alert_message.into());
+    }
+
+    pub fn render(&mut self, f: &mut Frame, app: &App) {
         let sections = Layout::default()
             .direction(Direction::Horizontal)
             .margin(1)
@@ -147,33 +183,64 @@ impl Ui {
             );
         }
 
-        self.popups.render(f, Popup::Api, crate::title!("api"), API);
-        self.popups
-            .render(f, Popup::Docs, crate::title!("docs"), DOCS);
+        let selected_device_name = self
+            .selectors
+            .get(Selector::Device)
+            .and_then(|s| s.selected().and_then(|index| app.devices().get(index)))
+            .map(|device| device.name.clone())
+            .unwrap_or_default();
+
+        let scope_tile = format!(
+            "{}───{}─{}",
+            crate::title!("{}", selected_device_name),
+            crate::title!("zoom : {}", self.downsample),
+            crate::title!("gain : {:.2}", self.gain),
+        );
+
+        widgets::scope::render(
+            f,
+            sections[1],
+            &scope_tile,
+            app.audio(),
+            self.downsample,
+            self.gain,
+        );
+
+        self.popups.render(
+            f,
+            Popup::Api,
+            crate::title!("api"),
+            aud::lua::imported::auscope::API,
+        );
+
+        self.popups.render(
+            f,
+            Popup::Docs,
+            crate::title!("docs"),
+            aud::lua::imported::auscope::DOCS,
+        );
+
         self.popups
             .render(f, Popup::Usage, crate::title!("usage"), USAGE);
 
-        // self.popups.render(f, Popup::Script, );
-        // self.popups.render(f, Popup::Aler, );
+        self.popups.render(
+            f,
+            Popup::Alert,
+            crate::title!("alert!"),
+            self.alert_message.as_ref().unwrap_or(&"".to_owned()),
+        );
 
-        let selected_device_name = match self.selectors.get(Selector::Device) {
-            Some(s) => s
-                .selected()
-                .and_then(|index| app.devices().get(index))
-                .map(|device| crate::title!("{}", device.name))
-                .unwrap_or_else(|| "".to_owned()),
-            None => "".to_owned(),
-        };
+        if !self.popups.is_visible(Popup::Script) {
+            self.popups
+                .render(f, Popup::Script, crate::title!(""), "No script loaded");
+        }
+    }
 
-        const DOWNSAMPLE: usize = 128;
-        const SAMPLE_RATE: usize = 48000;
-
+    pub fn remove_offscreen_samples(&mut self, app: &mut App, screen_width: usize, fps: f32) {
         let audio = app.audio_mut();
-        widgets::scope::render(f, sections[1], &selected_device_name, audio, 128);
-
-        let num_renderable_samples = f.size().width as usize * DOWNSAMPLE;
+        let num_renderable_samples = screen_width * self.downsample;
         let num_samples_to_purge =
-            ((SAMPLE_RATE as f32 / fps) * audio.num_channels as f32) as usize;
+            ((Self::SAMPLE_RATE as f32 / fps) * audio.num_channels as f32) as usize;
 
         if audio.data.len() > num_renderable_samples {
             let num_samples_to_purge =

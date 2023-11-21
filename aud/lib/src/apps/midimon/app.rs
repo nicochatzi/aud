@@ -13,8 +13,8 @@ pub enum AppEvent {
 }
 
 pub struct App {
-    script: ScriptController,
     midi_in: Box<dyn MidiReceiving>,
+    script: ScriptController,
     port_names: Vec<String>,
     selected_port_name: Option<String>,
     selected_script_name: Option<String>,
@@ -25,10 +25,10 @@ pub struct App {
 impl App {
     pub fn new(midi_in: Box<dyn MidiReceiving>) -> Self {
         Self {
-            script: ScriptController::start(imported::midimon::API),
-            selected_port_name: None,
             port_names: midi_in.list_midi_devices().unwrap(),
             midi_in,
+            script: ScriptController::start(imported::midimon::API),
+            selected_port_name: None,
             selected_script_name: None,
             alert_message: None,
             messages: vec![],
