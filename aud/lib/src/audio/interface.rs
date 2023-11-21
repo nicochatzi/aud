@@ -47,10 +47,19 @@ pub trait AudioConsuming {
 /// The API favors interleaved data since it is typically
 /// what lower-level APIs use, and it is easier (and more compact)
 /// for transferring or processing the audio data.
-#[derive(Serialize, Deserialize, Default, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct AudioBuffer {
     pub data: Vec<f32>,
     pub num_channels: u32,
+}
+
+impl Default for AudioBuffer {
+    fn default() -> Self {
+        Self {
+            data: vec![],
+            num_channels: 1,
+        }
+    }
 }
 
 impl AudioBuffer {
@@ -144,7 +153,7 @@ impl AudioBuffer {
     /// Number of "frames" in this interleaved buffer. This is effectively
     /// the same as "number of samples per channel" for this buffer.
     pub fn num_frames(&self) -> usize {
-        self.data.len() / self.num_channels as usize
+        self.data.len() / self.num_channels.min(1) as usize
     }
 }
 

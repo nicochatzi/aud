@@ -1,7 +1,6 @@
-use aud::audio::AudioBuffer;
+use aud::{audio::AudioBuffer, dsp};
 use ratatui::{prelude::*, widgets::*};
 
-const DOWNSAMPLE: usize = 8;
 const COLORS: [Color; 8] = [
     Color::Cyan,
     Color::Yellow,
@@ -13,24 +12,33 @@ const COLORS: [Color; 8] = [
     Color::LightRed,
 ];
 
-type ChannelData = Vec<(f64, f64)>;
+type SamplePoint = (f64, f64);
+type SamplePoints = Vec<SamplePoint>;
 
-fn prepare_audio_data(audio: &AudioBuffer) -> Vec<ChannelData> {
-    audio
-        .data
-        .chunks(audio.num_channels.max(1) as usize)
-        .map(|channel: &[f32]| -> ChannelData {
-            channel
-                .iter()
-                .step_by(DOWNSAMPLE)
-                .enumerate()
-                .map(|(i, &sample)| (i as f64, sample as f64))
-                .collect()
-        })
-        .collect()
+fn prepare_audio_data(
+    audio: &AudioBuffer,
+    downsample: usize,
+    num_samples_to_render: usize,
+) -> Vec<SamplePoints> {
+    let num_channels = audio.num_channels.min(1) as usize;
+    let audio = dsp::deinterleave(&audio.data, num_channels);
+    let mut channels = Vec::<SamplePoints>::with_capacity(num_channels);
+    for chan in audio {
+        let data = chan
+            .iter()
+            .take(num_samples_to_render * downsample)
+            .rev()
+            .step_by(num_channels)
+            .step_by(downsample)
+            .enumerate()
+            .map(|(i, &sample)| (i as f64, sample as f64))
+            .collect();
+        channels.push(data);
+    }
+    channels
 }
 
-fn create_datasets(data: &[ChannelData]) -> Vec<Dataset> {
+fn create_datasets(data: &[SamplePoints]) -> Vec<Dataset> {
     data.iter()
         .enumerate()
         .map(|(i, points)| {
@@ -43,8 +51,11 @@ fn create_datasets(data: &[ChannelData]) -> Vec<Dataset> {
         .collect()
 }
 
-pub fn render(f: &mut Frame, area: Rect, title: &str, audio: &AudioBuffer) -> usize {
-    let data = prepare_audio_data(audio);
+pub fn render(f: &mut Frame, area: Rect, title: &str, audio: &AudioBuffer, downsample: usize) {
+    let width = f.size().width as usize;
+    let num_samples_to_render = (audio.num_frames() / downsample).min(width);
+    let data = prepare_audio_data(audio, downsample, num_samples_to_render);
+
     let datasets = create_datasets(&data);
 
     let chart = Chart::new(datasets)
@@ -67,5 +78,4 @@ pub fn render(f: &mut Frame, area: Rect, title: &str, audio: &AudioBuffer) -> us
         );
 
     f.render_widget(chart, area);
-    data.iter().map(Vec::len).sum()
 }

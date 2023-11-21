@@ -12,9 +12,6 @@ elided-lifetimes-in-paths = "allow"
 [workspace.lints.clippy]
 all = "deny"
 
-[profile.release]
-lto = "fat"
-
 [workspace.dependencies]
 anyhow = "1.0.75"
 thiserror = "1.0.48"

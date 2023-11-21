@@ -59,6 +59,9 @@ log FILE='./out/aud.log':
 udpdump:
 	sudo tcpdump -i lo0 udp port 8080 -v # -X
 
+profile ARGS:
+    CARGO_PROFILE_RELEASE_DEBUG=true cargo flamegraph --root --bin aud -- {{ARGS}}
+
 # run-once setup your development environment for this project
 setup: (_setup_packages)
 	cargo install cargo-deny cargo-watch cargo-nextest bat

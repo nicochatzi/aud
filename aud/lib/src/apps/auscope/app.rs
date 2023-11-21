@@ -64,7 +64,6 @@ impl App {
         let mut audio = self.receiver.retrieve_audio_buffer();
 
         if !audio.data.is_empty() {
-            log::info!("num received {}", self.num_received);
             self.num_received += 1;
         }
 

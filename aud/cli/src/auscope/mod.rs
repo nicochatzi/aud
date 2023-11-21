@@ -8,14 +8,15 @@ use ratatui::prelude::*;
 struct TerminalApp {
     app: App,
     ui: ui::Ui,
+    fps: f32,
 }
 
 impl TerminalApp {
-    fn new(audio_provider: Box<dyn AudioProvider>) -> Self {
+    fn new(audio_provider: Box<dyn AudioProvider>, fps: f32) -> Self {
         let app = App::new(audio_provider);
         let mut ui = ui::Ui::default();
         ui.update_device_names(app.devices());
-        Self { app, ui }
+        Self { app, ui, fps }
     }
 
     fn try_connect_to_audio_input(&mut self, index: usize) -> anyhow::Result<()> {
@@ -53,7 +54,7 @@ impl crate::app::Base for TerminalApp {
     }
 
     fn render(&mut self, f: &mut Frame) {
-        self.ui.render(f, &mut self.app);
+        self.ui.render(f, &mut self.app, self.fps);
     }
 }
 
@@ -119,7 +120,7 @@ pub fn run(
         Box::<HostAudioInput>::default()
     };
 
-    let mut app = TerminalApp::new(audio_provider);
+    let mut app = TerminalApp::new(audio_provider, opts.fps);
 
     let scripts = opts
         .script

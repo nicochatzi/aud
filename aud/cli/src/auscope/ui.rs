@@ -106,7 +106,7 @@ impl Ui {
         UiEvent::Continue
     }
 
-    pub fn render(&mut self, f: &mut Frame, app: &mut App) {
+    pub fn render(&mut self, f: &mut Frame, app: &mut App, fps: f32) {
         let sections = Layout::default()
             .direction(Direction::Horizontal)
             .margin(1)
@@ -165,9 +165,21 @@ impl Ui {
             None => "".to_owned(),
         };
 
+        const DOWNSAMPLE: usize = 128;
+        const SAMPLE_RATE: usize = 48000;
+
         let audio = app.audio_mut();
-        let num_samples_rendered =
-            widgets::scope::render(f, sections[1], &selected_device_name, audio);
-        let _ = audio.data.drain(0..num_samples_rendered);
+        widgets::scope::render(f, sections[1], &selected_device_name, audio, 128);
+
+        let num_renderable_samples = f.size().width as usize * DOWNSAMPLE;
+        let num_samples_to_purge =
+            ((SAMPLE_RATE as f32 / fps) * audio.num_channels as f32) as usize;
+
+        if audio.data.len() > num_renderable_samples {
+            let num_samples_to_purge =
+                num_samples_to_purge.max(audio.data.len() - num_renderable_samples);
+
+            let _ = audio.data.drain(0..num_samples_to_purge);
+        }
     }
 }
