@@ -1,6 +1,4 @@
 mod app;
-mod lua;
-
 pub use app::*;
 
 #[cfg(test)]

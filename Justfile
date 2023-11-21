@@ -59,6 +59,7 @@ log FILE='./out/aud.log':
 udpdump:
 	sudo tcpdump -i lo0 udp port 8080 -v # -X
 
+# profile aud CLI - requires `cargo-flamegraph`
 profile ARGS:
     CARGO_PROFILE_RELEASE_DEBUG=true cargo flamegraph --root --bin aud -- {{ARGS}}
 

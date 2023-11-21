@@ -1,10 +1,7 @@
-use super::lua::*;
 use crate::{
-    files,
-    lua::{traits::api::*, LuaEngineEvent, LuaEngineHandle},
+    lua::{imported, traits::api::*, HostEvent, LuaEngineEvent, ScriptController, ScriptEvent},
     midi::{MidiData, MidiReceiving},
 };
-use crossbeam::channel::{Receiver, Sender};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -16,39 +13,25 @@ pub enum AppEvent {
 }
 
 pub struct App {
-    host_tx: Sender<HostEvent>,
-    script_rx: Receiver<ScriptEvent>,
-    lua_handle: LuaEngineHandle,
+    script: ScriptController,
     midi_in: Box<dyn MidiReceiving>,
-
     port_names: Vec<String>,
     selected_port_name: Option<String>,
     selected_script_name: Option<String>,
-
     alert_message: Option<String>,
     messages: Vec<MidiData>,
-
-    script_path: Option<PathBuf>,
-    file_watcher: Option<files::FsWatcher>,
 }
 
 impl App {
     pub fn new(midi_in: Box<dyn MidiReceiving>) -> Self {
-        let (host_tx, host_rx) = crossbeam::channel::bounded::<HostEvent>(1_000);
-        let (script_tx, script_rx) = crossbeam::channel::bounded::<ScriptEvent>(1_000);
-
         Self {
-            host_tx,
-            script_rx,
-            lua_handle: crate::lua::start_engine(ScriptController::new(script_tx, host_rx)),
+            script: ScriptController::start(imported::midimon::API),
             selected_port_name: None,
             port_names: midi_in.list_midi_devices().unwrap(),
             midi_in,
             selected_script_name: None,
             alert_message: None,
             messages: vec![],
-            script_path: None,
-            file_watcher: None,
         }
     }
 
@@ -77,7 +60,7 @@ impl App {
     }
 
     pub fn loaded_script_path(&self) -> Option<&PathBuf> {
-        self.script_path.as_ref()
+        self.script.path()
     }
 
     pub fn take_messages(&mut self) -> Vec<MidiData> {
@@ -92,20 +75,17 @@ impl App {
         if self.port_names.get(port_index).is_none() {
             return Ok(());
         }
-
         {
             let port_name = &self.port_names[port_index];
             self.midi_in.connect_to_midi_device(port_name)?;
             self.selected_port_name = Some(port_name.into());
             let port_name = port_name.to_owned();
 
-            if let Err(e) = self.host_tx.try_send(HostEvent::Connect(port_name)) {
+            if let Err(e) = self.script.try_send(HostEvent::Connect(port_name)) {
                 log::error!("Failed to send device connected event to runtime : {e}");
             }
         }
-
         self.clear_messages();
-
         Ok(())
     }
 
@@ -118,14 +98,11 @@ impl App {
 
     /// Send a script to be loaded by the scripting engine. This function does not block.
     pub fn load_script(&mut self, script: impl AsRef<Path>) -> anyhow::Result<AppEvent> {
-        let script_path = script.as_ref();
-        if !script_path.exists() || !script_path.is_file() {
-            anyhow::bail!("Invalid script path or type");
-        }
+        let script = script.as_ref();
+        self.script.load(script)?;
 
-        self.script_path = Some(script_path.into());
         self.selected_script_name = Some(
-            script_path
+            script
                 .file_name()
                 .unwrap_or_default()
                 .to_str()
@@ -133,23 +110,8 @@ impl App {
                 .to_owned(),
         );
 
-        if let Err(e) = self.host_tx.try_send(HostEvent::Stop) {
-            log::error!("failed to send stop event : {e}");
-        }
-
-        let event = HostEvent::LoadScript {
-            name: self.selected_script_name.as_ref().unwrap().to_owned(),
-            chunk: std::fs::read_to_string(script_path)?,
-        };
-
-        self.file_watcher = files::FsWatcher::run(script_path).ok();
-
-        if let Err(e) = self.host_tx.try_send(event) {
-            log::error!("failed to send load script event : {e}");
-        }
-
         if let Err(e) = self
-            .host_tx
+            .script
             .try_send(HostEvent::Discover(self.port_names.clone()))
         {
             log::error!("failed to send discovery event : {e}");
@@ -197,7 +159,7 @@ impl App {
     /// Transfer all received MIDI messages to the engine.
     pub fn process_midi_messages(&mut self) {
         for msg in self.midi_in.produce_midi_messages() {
-            if let Err(e) = self.host_tx.send(HostEvent::Midi(msg)) {
+            if let Err(e) = self.script.try_send(HostEvent::Midi(msg)) {
                 log::error!("Failed to send midi to Lua Runtime : {e}");
             }
         }
@@ -208,7 +170,7 @@ impl App {
     /// - requests to stop the application
     /// - has just loaded a script
     pub fn process_script_events(&mut self) -> anyhow::Result<AppEvent> {
-        while let Ok(script_event) = self.script_rx.try_recv() {
+        while let Ok(script_event) = self.script.try_recv() {
             match script_event {
                 ScriptEvent::Loaded => return Ok(AppEvent::ScriptLoaded),
                 ScriptEvent::Log(request) => self.handle_lua_log_request(request),
@@ -227,53 +189,29 @@ impl App {
 
     /// Process all the available file watcher events without blocking.
     pub fn process_file_events(&mut self) -> anyhow::Result<AppEvent> {
-        let Some(ref watcher) = self.file_watcher else {
-            return Ok(AppEvent::Continue);
-        };
-
-        for event in watcher.events().try_iter().collect::<Vec<_>>() {
-            if self.has_file_changed(event) {
-                if let Some(script) = self.script_path.clone() {
-                    log::trace!("Loaded script has changed on filesystem");
-                    return self.load_script(script);
-                }
-
-                break;
-            }
+        if self.script.was_script_modified()? && self.script.path().is_some() {
+            self.load_script(self.script.path().unwrap().clone())
+        } else {
+            Ok(AppEvent::Continue)
         }
-
-        Ok(AppEvent::Continue)
     }
 
     /// Process all the available engine events without blocking.
     pub fn process_engine_events(&mut self) -> anyhow::Result<AppEvent> {
-        while let Ok(event) = self.lua_handle.events().try_recv() {
+        while let Ok(event) = self.script.try_recv_engine_events() {
             match event {
                 LuaEngineEvent::Panicked => return Ok(AppEvent::ScriptCrash),
                 LuaEngineEvent::Terminated => log::info!("Lua Engine terminated"),
             }
         }
-
         Ok(AppEvent::Continue)
-    }
-
-    fn has_file_changed(&mut self, event: notify::Result<notify::Event>) -> bool {
-        match event {
-            Ok(event) => matches!(event.kind, notify::EventKind::Modify(_)),
-            Err(e) => {
-                log::error!("Script reload failed : {e}");
-                false
-            }
-        }
     }
 
     fn handle_lua_connect_request(&mut self, request: ConnectionApiEvent) -> anyhow::Result<()> {
         let ConnectionApiEvent { ref device } = request;
-
         if self.port_names.iter().any(|name| name == device) {
             self.connect_to_midi_input(device)?;
         }
-
         Ok(())
     }
 
@@ -283,7 +221,6 @@ impl App {
             ControlFlowApiEvent::Resume => self.set_running(true),
             ControlFlowApiEvent::Stop => return AppEvent::Stopping,
         }
-
         AppEvent::Continue
     }
 
@@ -291,23 +228,6 @@ impl App {
         match request {
             LogApiEvent::Log(msg) => log::info!("{msg}"),
             LogApiEvent::Alert(msg) => self.alert_message = Some(msg),
-        }
-    }
-}
-
-impl Drop for App {
-    fn drop(&mut self) {
-        let Some(handle) = self.lua_handle.take_handle() else {
-            return;
-        };
-
-        if let Err(e) = self.host_tx.try_send(HostEvent::Terminate) {
-            log::error!("Failed to send termination message to Lua runtime : {e}");
-            return;
-        };
-
-        if handle.join().is_err() {
-            log::error!("Failed to join on Lua runtime thread handle");
         }
     }
 }

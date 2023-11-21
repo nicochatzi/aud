@@ -1,9 +1,11 @@
 mod engine;
+mod handle;
 mod runtime;
 
 pub mod traits;
 
 pub use engine::*;
+pub use handle::*;
 pub use runtime::*;
 
 pub mod imported {

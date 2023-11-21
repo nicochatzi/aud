@@ -12,7 +12,6 @@ pub struct App {
     buffer: AudioBuffer,
     receiver: Box<dyn AudioProvider>,
     device: Option<AudioDevice>,
-    num_received: usize,
 }
 
 impl App {
@@ -21,7 +20,6 @@ impl App {
             buffer: AudioBuffer::default(),
             receiver: audio_receiver,
             device: None,
-            num_received: 0,
         }
     }
 
@@ -62,10 +60,6 @@ impl App {
         self.receiver.process_audio_events()?;
 
         let mut audio = self.receiver.retrieve_audio_buffer();
-
-        if !audio.data.is_empty() {
-            self.num_received += 1;
-        }
 
         if self.buffer.num_channels != audio.num_channels {
             self.buffer = audio;

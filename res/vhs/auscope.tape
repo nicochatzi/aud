@@ -18,7 +18,6 @@ Type "q"
 Type "j"
 Sleep 250ms
 
-Type "k"
 Enter
 
 Sleep 3s
