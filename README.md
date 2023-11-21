@@ -5,7 +5,7 @@ scriptable <code>aud</code>io terminal tools
 </p>
 
 <p align="center">
-<img src="./res/out/scope_loop.gif">
+<img src="./vhs/out/scope_loop.gif">
 </p>
 
 🧱 `Requires`: [Rust](https://www.rust-lang.org/tools/install) and [Just](https://github.com/casey/just)
@@ -20,7 +20,7 @@ scriptable <code>aud</code>io terminal tools
 
 After installing, you can generate and install terminal auto-completions scripts.
 
-![aud](./res/out/aud.gif)
+![aud](./vhs/out/aud.gif)
 
 <h2 align="center"><code>commands</code></h2>
 
@@ -28,7 +28,7 @@ After installing, you can generate and install terminal auto-completions scripts
 
 Scriptable MIDI Monitor.
 
-![midimon](./res/out/midimon.gif)
+![midimon](./vhs/out/midimon.gif)
 
 ### `auscope`
 
@@ -38,10 +38,10 @@ By default `auscope` lists the host machine's audio devices.
 `aud_lib` can integrated in other applications (Rust or through C-FFI)
 to generate sources and send them over UDP to an `auscope` instance.
 
-![auscope](./res/out/auscope.gif)
+![auscope](./vhs/out/auscope.gif)
 
 ### `derlink`
 
 Simple Ableton Link Client.
 
-![derlink](./res/out/derlink.gif)
+![derlink](./vhs/out/derlink.gif)

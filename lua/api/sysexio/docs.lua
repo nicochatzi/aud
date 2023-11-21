@@ -19,4 +19,3 @@ function resume() end
 
 -- Request to stop the application
 function stop() end
-

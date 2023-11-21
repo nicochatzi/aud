@@ -1,4 +1,4 @@
-Output res/out/derlink.gif
+Output vhs/out/derlink.gif
 
 Set FontSize 24
 Set FontFamily "JetBrains Mono"

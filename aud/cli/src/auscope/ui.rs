@@ -49,6 +49,7 @@ pub struct Ui {
     script_dir: Option<std::path::PathBuf>,
     script_names: Vec<String>,
     alert_message: Option<String>,
+    cached_script: Option<String>,
     downsample: usize,
     gain: f32,
 }
@@ -67,6 +68,7 @@ impl Default for Ui {
             script_dir: None,
             script_names: vec![],
             alert_message: None,
+            cached_script: None,
             downsample: 16,
             gain: 1.,
         }
@@ -75,6 +77,18 @@ impl Default for Ui {
 
 impl Ui {
     const SAMPLE_RATE: usize = 48000;
+
+    pub fn scripts(&self) -> &[String] {
+        self.script_names.as_slice()
+    }
+
+    pub fn script_dir(&self) -> Option<&std::path::PathBuf> {
+        self.script_dir.as_ref()
+    }
+
+    pub fn clear_script_cache(&mut self) {
+        self.cached_script = None;
+    }
 
     pub fn update_script_dir(&mut self, dir: impl AsRef<std::path::Path>) -> anyhow::Result<()> {
         let dir = dir.as_ref();
@@ -123,7 +137,10 @@ impl Ui {
             KeyCode::Enter => {
                 if let Some(selection) = self.selectors.select() {
                     return match selection.selector {
-                        Selector::Script => UiEvent::LoadScript(selection.index),
+                        Selector::Script => {
+                            self.cached_script = None;
+                            UiEvent::LoadScript(selection.index)
+                        }
                         Selector::Device => UiEvent::Select {
                             id: selection.selector,
                             index: selection.index,
@@ -234,6 +251,26 @@ impl Ui {
             self.popups
                 .render(f, Popup::Script, crate::title!(""), "No script loaded");
         }
+
+        let selected_script_name = match app.selected_script() {
+            Some(name) => crate::title!("script : {}", name),
+            None => "".to_owned(),
+        };
+
+        if self.cached_script.is_none() {
+            self.cached_script = Some(
+                app.loaded_script_path()
+                    .and_then(|path| std::fs::read_to_string(path).ok())
+                    .unwrap_or_else(|| "No script loaded".to_owned()),
+            );
+        }
+
+        self.popups.render(
+            f,
+            Popup::Script,
+            &selected_script_name,
+            self.cached_script.as_ref().unwrap(),
+        );
     }
 
     pub fn remove_offscreen_samples(&mut self, app: &mut App, screen_width: usize, fps: f32) {

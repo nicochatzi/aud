@@ -33,6 +33,16 @@ impl TerminalApp {
 impl crate::app::Base for TerminalApp {
     fn update(&mut self) -> anyhow::Result<crate::app::Flow> {
         self.app.fetch_audio()?;
+        self.app.process_engine_events()?;
+
+        if self.app.process_script_events()? == AppEvent::Stopping {
+            return Ok(crate::app::Flow::Exit);
+        }
+
+        if self.app.process_file_events()? == AppEvent::ScriptLoaded {
+            self.ui.clear_script_cache();
+        }
+
         Ok(crate::app::Flow::Continue)
     }
 
@@ -48,7 +58,10 @@ impl crate::app::Base for TerminalApp {
                 ui::Selector::Script => Ok(crate::app::Flow::Continue),
             },
             ui::UiEvent::LoadScript(index) => {
-                self.try_connect_to_audio_input(index)?;
+                if let Some(script_name) = &self.ui.scripts().get(index) {
+                    let script = self.ui.script_dir().unwrap().join(script_name);
+                    self.app.load_script(script)?;
+                };
                 Ok(crate::app::Flow::Continue)
             }
         }

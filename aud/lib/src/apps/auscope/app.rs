@@ -1,9 +1,13 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::{
     audio::*,
     comms::{SocketInterface, Sockets},
-    lua::{imported, HostEvent, ScriptController},
+    lua::{
+        imported,
+        traits::api::{ConnectionApiEvent, LogApiEvent},
+        HostEvent, LuaEngineEvent, ScriptController, ScriptEvent,
+    },
 };
 use crossbeam::channel;
 
@@ -48,6 +52,14 @@ impl App {
 
     pub fn take_alert(&mut self) -> Option<String> {
         self.alert_message.take()
+    }
+
+    pub fn selected_script(&self) -> Option<&str> {
+        self.selected_script_name.as_deref()
+    }
+
+    pub fn loaded_script_path(&self) -> Option<&PathBuf> {
+        self.script.path()
     }
 
     pub fn audio(&self) -> &AudioBuffer {
@@ -132,6 +144,64 @@ impl App {
         }
 
         Ok(AppEvent::Continue)
+    }
+
+    pub fn process_script_events(&mut self) -> anyhow::Result<AppEvent> {
+        while let Ok(script_event) = self.script.try_recv() {
+            match script_event {
+                ScriptEvent::Loaded => return Ok(AppEvent::ScriptLoaded),
+                ScriptEvent::Log(request) => self.handle_lua_log_request(request),
+                ScriptEvent::Connect(request) => self.handle_lua_connect_request(request)?,
+                _ => (),
+            }
+        }
+
+        Ok(AppEvent::Continue)
+    }
+
+    pub fn process_file_events(&mut self) -> anyhow::Result<AppEvent> {
+        if self.script.was_script_modified()? && self.script.path().is_some() {
+            self.load_script(self.script.path().unwrap().clone())
+        } else {
+            Ok(AppEvent::Continue)
+        }
+    }
+
+    pub fn process_engine_events(&mut self) -> anyhow::Result<AppEvent> {
+        while let Ok(event) = self.script.try_recv_engine_events() {
+            match event {
+                LuaEngineEvent::Panicked => return Ok(AppEvent::ScriptCrash),
+                LuaEngineEvent::Terminated => log::info!("Lua Engine terminated"),
+            }
+        }
+        Ok(AppEvent::Continue)
+    }
+
+    fn handle_lua_connect_request(&mut self, request: ConnectionApiEvent) -> anyhow::Result<()> {
+        let ConnectionApiEvent { ref device } = request;
+
+        let device = self
+            .devices()
+            .iter()
+            .find(|dev| dev.name == *device)
+            .cloned();
+
+        if let Some(device) = device {
+            let channels = self
+                .selected_channels
+                .clone()
+                .unwrap_or(AudioChannelSelection::Mono(0));
+            self.connect_to_audio_input(&device, channels)?;
+        }
+
+        Ok(())
+    }
+
+    fn handle_lua_log_request(&mut self, request: LogApiEvent) {
+        match request {
+            LogApiEvent::Log(msg) => log::info!("{msg}"),
+            LogApiEvent::Alert(msg) => self.alert_message = Some(msg),
+        }
     }
 }
 

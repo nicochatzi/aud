@@ -1,4 +1,4 @@
-Output res/out/midimon.gif
+Output vhs/out/midimon.gif
 
 Set FontSize 18
 Set FontFamily "JetBrains Mono"
@@ -33,6 +33,7 @@ Type "q"
 Sleep 250ms
 Type "h"
 Sleep 250ms
+
 Enter
 Sleep 5s
 

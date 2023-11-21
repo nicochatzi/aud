@@ -38,7 +38,7 @@ fn bench_dequeue(c: &mut Criterion) {
                 total_channels,
                 selected_channels,
             );
-            std::vec::from_elem(buffer_size * total_channels, 0.0);
+            std::vec::from_elem(buffer_size * total_channels, 0);
             let mut audio_buffer: Vec<f32> = vec![0.0; buffer_size * total_channels];
 
             b.iter(|| {

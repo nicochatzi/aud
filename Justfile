@@ -21,12 +21,12 @@ run CMD:
 
 # run all tests - requires `cargo-nextest`
 test:
-	cargo nextest run --all-targets --all-features
+	cargo nextest run --all-targets --all-features -j{{num_cpus()}}
 	cargo test --doc
 
 # run a command every time source files change - requires `cargo-watch`
 dev CMD='just b':
-	cargo watch -cs 'reset; {{CMD}}' -i 'res/*' -i 'out/*' -i 'lua/api/examples/*'
+	cargo watch -cs 'reset; {{CMD}}' -i 'vhs/*' -i 'out/*' -i 'lua/api/examples/*'
 
 # run the benchmarks
 bench:
@@ -43,12 +43,12 @@ install DIR='./out': build
 	cp target/release/aud {{DIR}}/aud
 
 _tape CMD:
-    vhs res/vhs/{{CMD}}.tape
+    vhs vhs/{{CMD}}.tape
 
 # create CLI recordings - requires `vhs` & `parallel`
 tape:
 	#!/usr/bin/env bash
-	parallel --ungroup vhs ::: res/vhs/*
+	parallel --ungroup vhs ::: vhs/*
 
 # tail a log file - request `bat`
 log FILE='./out/aud.log':

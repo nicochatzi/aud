@@ -1,7 +1,7 @@
 <h1 align="center"><code>midimon</code></h1>
 <p align="center">Scriptable MIDI Monitor</p>
 
-![midimon](../res/out/midimon.gif)
+![midimon](../vhs/out/midimon.gif)
 
 ## Usage
 
