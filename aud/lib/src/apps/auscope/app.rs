@@ -1,5 +1,3 @@
-use std::path::{Path, PathBuf};
-
 use crate::{
     audio::*,
     comms::{SocketInterface, Sockets},
@@ -10,6 +8,7 @@ use crate::{
     },
 };
 use crossbeam::channel;
+use std::path::{Path, PathBuf};
 
 pub trait AudioProvider: AudioProviding + AudioInterface {}
 

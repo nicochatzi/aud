@@ -169,6 +169,10 @@ impl ScriptController {
         self.script_path.as_ref()
     }
 
+    pub fn name(&self) -> Option<&str> {
+        self.path()?.file_name()?.to_str()
+    }
+
     pub fn try_recv_engine_events(&self) -> anyhow::Result<LuaEngineEvent> {
         Ok(self.lua_handle.events().try_recv()?)
     }

@@ -32,7 +32,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - if: ${{ matrix.os == 'ubuntu-22.04' }}
         run: |
-          sudo apt-get update
+          sudo apt update
           sudo apt install -y --no-install-recommends libasound2-dev
           cargo build --features vendored_lua
       - name: build

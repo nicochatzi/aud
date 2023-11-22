@@ -1,4 +1,4 @@
 [env]
-AUD_IMPORTED_LUA_RS = "imported_lua.rs"
 RUST_LOG = "trace"
+AUD_IMPORTED_LUA_RS = "imported_lua.rs"
 AUD_LIB_FIXTURES = { value = 'aud/lib/fixtures', relative = true }

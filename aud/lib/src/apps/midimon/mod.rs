@@ -14,7 +14,6 @@ mod test {
     #[derive(Default)]
     struct MockMidiHost {
         is_active: bool,
-        messages: Vec<MidiData>,
     }
 
     impl MidiReceiving for MockMidiHost {
