@@ -1,38 +1,48 @@
 mod ui;
 
-use aud::{apps::auscope::*, audio::*, comms::Sockets};
+use aud::{
+    apps::{
+        audio::AudioProvider,
+        audio_midi::{AppEvent, AudioMidiController},
+        audio_remote::RemoteAudioProvider,
+    },
+    audio::*,
+    comms::Sockets,
+    lua::imported,
+};
 use ratatui::prelude::*;
 use std::net::UdpSocket;
 
 struct TerminalApp {
-    app: App,
+    app: AudioMidiController,
     ui: ui::Ui,
     fps: f32,
 }
 
 impl TerminalApp {
     fn new(audio_provider: Box<dyn AudioProvider>, fps: f32) -> Self {
-        let app = App::new(audio_provider);
+        let app = AudioMidiController::with_audio(audio_provider, imported::auscope::API);
         let mut ui = ui::Ui::default();
-        ui.update_device_names(app.devices());
+        ui.update_device_names(app.audio().devices());
         Self { app, ui, fps }
     }
 
     fn try_connect_to_audio_input(&mut self, index: usize) -> anyhow::Result<()> {
-        let Some(device) = self.app.devices().get(index) else {
-            let num_devices = self.app.devices().len();
+        let Some(device) = self.app.audio().devices().get(index) else {
+            let num_devices = self.app.audio().devices().len();
             log::warn!("Invalid device index selection {index}, with {num_devices} devices",);
             return Ok(());
         };
 
+        let device = device.clone();
         let channels = AudioChannelSelection::Mono(0);
-        self.app.connect_to_audio_input(&device.clone(), channels)
+        self.app.audio_mut().connect_to_input(&device, channels)
     }
 }
 
 impl crate::app::Base for TerminalApp {
     fn update(&mut self) -> anyhow::Result<crate::app::Flow> {
-        self.app.fetch_audio()?;
+        self.app.audio_mut().update()?;
         self.app.process_engine_events()?;
 
         if self.app.process_script_events()? == AppEvent::Stopping {

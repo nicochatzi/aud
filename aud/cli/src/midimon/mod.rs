@@ -1,38 +1,40 @@
 mod ui;
 
 use crate::ui::widgets::midi::MidiMessageString;
-use aud::midi::HostedMidiReceiver;
+use aud::{
+    apps::audio_midi::{AppEvent, AudioMidiController},
+    lua::imported,
+    midi::HostedMidiReceiver,
+};
 use ratatui::prelude::*;
-
-type MidimonApp = aud::apps::midimon::App;
-type MidimonEvent = aud::apps::midimon::AppEvent;
 
 struct TerminalApp {
     ui: ui::Ui,
-    app: MidimonApp,
+    app: AudioMidiController,
 }
 
 impl Default for TerminalApp {
     fn default() -> Self {
         let midi_in = Box::<HostedMidiReceiver>::default();
-        let app = MidimonApp::new(midi_in);
+        let app = AudioMidiController::with_midi(midi_in, imported::midimon::API);
         let mut ui = ui::Ui::default();
-        ui.update_port_names(app.ports());
+        ui.update_port_names(app.midi().port_names());
         Self { ui, app }
     }
 }
 
 impl crate::app::Base for TerminalApp {
     fn update(&mut self) -> anyhow::Result<crate::app::Flow> {
-        self.app.process_midi_messages();
+        self.app.midi_mut().update();
         self.app.process_engine_events()?;
 
-        if self.app.process_script_events()? == MidimonEvent::Stopping {
+        if self.app.process_script_events()? == AppEvent::Stopping {
             return Ok(crate::app::Flow::Exit);
         }
 
         let mut messages: Vec<_> = self
             .app
+            .midi_mut()
             .take_messages()
             .iter()
             .filter_map(|midi| MidiMessageString::new(midi.timestamp, &midi.bytes))
@@ -40,7 +42,7 @@ impl crate::app::Base for TerminalApp {
 
         self.ui.append_messages(&mut messages);
 
-        if self.app.process_file_events()? == MidimonEvent::ScriptLoaded {
+        if self.app.process_file_events()? == AppEvent::ScriptLoaded {
             self.ui.clear_script_cache();
         }
 
@@ -51,10 +53,13 @@ impl crate::app::Base for TerminalApp {
         match self.ui.handle_keypress(key)? {
             ui::UiEvent::Continue => (),
             ui::UiEvent::Exit => return Ok(crate::app::Flow::Exit),
-            ui::UiEvent::ToggleRunningState => self.app.set_running(!self.app.running()),
-            ui::UiEvent::ClearMessages => self.app.clear_messages(),
+            ui::UiEvent::ToggleRunningState => {
+                let run = !self.app.midi().is_running();
+                self.app.midi_mut().set_running(run)
+            }
+            ui::UiEvent::ClearMessages => self.app.midi_mut().clear_messages(),
             ui::UiEvent::Connect(port_index) => {
-                self.app.connect_to_midi_input_by_index(port_index)?;
+                self.app.midi_mut().connect_to_input_by_index(port_index)?;
             }
             ui::UiEvent::LoadScript(script_index) => {
                 if let Some(script_name) = &self.ui.scripts().get(script_index) {

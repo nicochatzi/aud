@@ -209,7 +209,7 @@ impl ScriptController {
         Ok(())
     }
 
-    pub fn was_script_modified(&mut self) -> anyhow::Result<bool> {
+    pub fn was_script_modified(&self) -> anyhow::Result<bool> {
         let Some(ref watcher) = self.file_watcher else {
             return Ok(false);
         };
@@ -228,7 +228,7 @@ impl ScriptController {
         Ok(false)
     }
 
-    fn has_file_changed(&mut self, event: notify::Result<notify::Event>) -> bool {
+    fn has_file_changed(&self, event: notify::Result<notify::Event>) -> bool {
         match event {
             Ok(event) => matches!(event.kind, notify::EventKind::Modify(_)),
             Err(e) => {

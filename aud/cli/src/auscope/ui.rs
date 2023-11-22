@@ -1,5 +1,5 @@
 use crate::ui::{components, widgets};
-use aud::{apps::auscope::App, audio::AudioDevice, files};
+use aud::{apps::audio_midi::AudioMidiController, audio::AudioDevice, files};
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::prelude::*;
 
@@ -111,7 +111,7 @@ impl Ui {
     }
 
     fn adjust_downsample(&mut self, amount: isize) {
-        self.downsample = (self.downsample as isize + amount).clamp(16, 4096) as usize;
+        self.downsample = (self.downsample as isize + amount).clamp(8, 4096) as usize;
     }
 
     pub fn on_keypress(&mut self, key: KeyEvent) -> UiEvent<Selector> {
@@ -128,8 +128,8 @@ impl Ui {
             }
             KeyCode::Char('K') => self.adjust_gain(0.1),
             KeyCode::Char('J') => self.adjust_gain(-0.1),
-            KeyCode::Char('H') => self.adjust_downsample(-16),
-            KeyCode::Char('L') => self.adjust_downsample(16),
+            KeyCode::Char('H') => self.adjust_downsample(-8),
+            KeyCode::Char('L') => self.adjust_downsample(8),
             KeyCode::Up | KeyCode::Char('k') => self.selectors.previous_item(),
             KeyCode::Down | KeyCode::Char('j') => self.selectors.next_item(),
             KeyCode::Left | KeyCode::Char('h') => self.selectors.previous_selector(),
@@ -159,7 +159,7 @@ impl Ui {
         self.alert_message = Some(alert_message.into());
     }
 
-    pub fn render(&mut self, f: &mut Frame, app: &App) {
+    pub fn render(&mut self, f: &mut Frame, app: &AudioMidiController) {
         let sections = Layout::default()
             .direction(Direction::Horizontal)
             .margin(1)
@@ -184,7 +184,8 @@ impl Ui {
             device_selector_section,
             Selector::Device,
             crate::title!("devices"),
-            &app.devices()
+            &app.audio()
+                .devices()
                 .iter()
                 .map(|d| d.name.clone())
                 .collect::<Vec<_>>(),
@@ -203,7 +204,10 @@ impl Ui {
         let selected_device_name = self
             .selectors
             .get(Selector::Device)
-            .and_then(|s| s.selected().and_then(|index| app.devices().get(index)))
+            .and_then(|s| {
+                s.selected()
+                    .and_then(|index| app.audio().devices().get(index))
+            })
             .map(|device| device.name.clone())
             .unwrap_or_default();
 
@@ -218,7 +222,7 @@ impl Ui {
             f,
             sections[1],
             &scope_tile,
-            app.audio(),
+            app.audio().buffer(),
             self.downsample,
             self.gain,
         );
@@ -273,8 +277,13 @@ impl Ui {
         );
     }
 
-    pub fn remove_offscreen_samples(&mut self, app: &mut App, screen_width: usize, fps: f32) {
-        let audio = app.audio_mut();
+    pub fn remove_offscreen_samples(
+        &mut self,
+        app: &mut AudioMidiController,
+        screen_width: usize,
+        fps: f32,
+    ) {
+        let audio = app.audio_mut().buffer_mut();
         let num_renderable_samples = screen_width * self.downsample;
         let num_samples_to_purge =
             ((Self::SAMPLE_RATE as f32 / fps) * audio.num_channels as f32) as usize;

@@ -95,6 +95,7 @@ pub mod api {
 
     pub struct ConnectionApiEvent {
         pub device: String,
+        pub channels: Vec<usize>,
     }
 
     pub trait ConnectionProviding<E>
@@ -152,8 +153,12 @@ pub mod api {
     {
         fn load_connect(&self, name: String, tx: Sender<E>) -> anyhow::Result<()> {
             self.set_fn("connect", {
-                move |_, device: String| {
-                    if let Err(e) = tx.try_send(ConnectionApiEvent { device }.into()) {
+                move |_, args: (String, Vec<usize>)| {
+                    let event = ConnectionApiEvent {
+                        device: args.0,
+                        channels: args.1,
+                    };
+                    if let Err(e) = tx.try_send(event.into()) {
                         log::error!("{name} ! failed to send connection event : {}", e);
                     }
                     Ok(())

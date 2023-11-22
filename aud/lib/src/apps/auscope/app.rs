@@ -177,7 +177,7 @@ impl App {
     }
 
     fn handle_lua_connect_request(&mut self, request: ConnectionApiEvent) -> anyhow::Result<()> {
-        let ConnectionApiEvent { ref device } = request;
+        let ConnectionApiEvent { ref device, .. } = request;
 
         let device = self
             .devices()

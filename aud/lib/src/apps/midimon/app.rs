@@ -208,7 +208,7 @@ impl App {
     }
 
     fn handle_lua_connect_request(&mut self, request: ConnectionApiEvent) -> anyhow::Result<()> {
-        let ConnectionApiEvent { ref device } = request;
+        let ConnectionApiEvent { ref device, .. } = request;
         if self.port_names.iter().any(|name| name == device) {
             self.connect_to_midi_input(device)?;
         }

@@ -1,5 +1,5 @@
 use crate::ui::{components, widgets};
-use aud::{apps::midimon::App, files};
+use aud::{apps::audio_midi::AudioMidiController, files};
 use crossterm::event::KeyCode;
 use ratatui::prelude::*;
 use std::path::Path;
@@ -147,7 +147,7 @@ impl Ui {
         Ok(UiEvent::Continue)
     }
 
-    pub fn render(&mut self, f: &mut Frame, app: &App) {
+    pub fn render(&mut self, f: &mut Frame, app: &AudioMidiController) {
         let sections = Layout::default()
             .direction(Direction::Vertical)
             .margin(1)
@@ -172,7 +172,7 @@ impl Ui {
             port_selector_section,
             Selector::Port,
             crate::title!("ports"),
-            app.ports(),
+            app.midi().port_names(),
         );
 
         if has_script_dir {
@@ -185,7 +185,7 @@ impl Ui {
             )
         }
 
-        let selected_port_name = match app.selected_port() {
+        let selected_port_name = match app.midi().selected_port() {
             Some(name) => crate::title!("port : {}", name),
             None => "".to_owned(),
         };
@@ -195,7 +195,7 @@ impl Ui {
             None => "".to_owned(),
         };
 
-        let running_state = if app.running() {
+        let running_state = if app.midi().is_running() {
             crate::title!("active")
         } else {
             crate::title!("paused")
