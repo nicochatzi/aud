@@ -1,5 +1,5 @@
 use crate::ui::{components, widgets};
-use aud::{apps::audio_midi::AudioMidiController, files};
+use aud::{controllers::audio_midi::AudioMidiController, files};
 use crossterm::event::KeyCode;
 use ratatui::prelude::*;
 use std::path::Path;
@@ -185,7 +185,7 @@ impl Ui {
             )
         }
 
-        let selected_port_name = match app.midi().selected_port() {
+        let selected_port_name = match app.midi().selected_port_name() {
             Some(name) => crate::title!("port : {}", name),
             None => "".to_owned(),
         };

@@ -1,15 +1,13 @@
 mod ui;
 
-use aud::apps::derlink::App;
+use aud::controllers::ableton_link::AbletonLink;
 use crossterm::event::KeyCode;
 use ratatui::prelude::*;
-
-type DerlinkApp = App;
 
 #[derive(Default)]
 struct TerminalApp {
     ui: ui::Ui,
-    app: DerlinkApp,
+    app: AbletonLink,
 }
 
 impl crate::app::Base for TerminalApp {

@@ -1,10 +1,10 @@
-pub struct App {
+pub struct AbletonLink {
     link: rusty_link::AblLink,
     session_state: rusty_link::SessionState,
     quantum: f64,
 }
 
-impl Default for App {
+impl Default for AbletonLink {
     fn default() -> Self {
         Self {
             link: rusty_link::AblLink::new(120.),
@@ -14,7 +14,7 @@ impl Default for App {
     }
 }
 
-impl App {
+impl AbletonLink {
     pub fn capture_session_state(&mut self) {
         self.link.capture_app_session_state(&mut self.session_state);
     }

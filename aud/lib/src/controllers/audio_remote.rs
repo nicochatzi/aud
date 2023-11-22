@@ -11,7 +11,7 @@ use crate::{
 // Pipes audio received from the remote into the provider.
 // `RemoteAudioReceiver` receives audio and pushes into a
 // consumer. In our case, we want to grab that audio
-// through the `RemteAudioProvider`.
+// through the `RemoteAudioProvider`.
 struct AudioPipe {
     sender: channel::Sender<AudioBuffer>,
 }

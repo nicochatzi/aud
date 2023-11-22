@@ -1,5 +1,5 @@
 use crate::ui::{components, widgets};
-use aud::{apps::audio_midi::AudioMidiController, audio::AudioDevice, files};
+use aud::{audio::AudioDevice, controllers::audio_midi::AudioMidiController, files};
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::prelude::*;
 

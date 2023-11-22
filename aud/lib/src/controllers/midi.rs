@@ -35,7 +35,7 @@ impl MidiReceiverController {
         self.port_names.as_slice()
     }
 
-    pub fn selected_port(&self) -> Option<&str> {
+    pub fn selected_port_name(&self) -> Option<&str> {
         self.selected_port_name.as_deref()
     }
 

@@ -2,7 +2,7 @@ mod ui;
 
 use crate::ui::widgets::midi::MidiMessageString;
 use aud::{
-    apps::audio_midi::{AppEvent, AudioMidiController},
+    controllers::audio_midi::{AppEvent, AudioMidiController},
     lua::imported,
     midi::HostedMidiReceiver,
 };

@@ -1,13 +1,13 @@
 mod ui;
 
 use aud::{
-    apps::{
+    audio::*,
+    comms::Sockets,
+    controllers::{
         audio::AudioProvider,
         audio_midi::{AppEvent, AudioMidiController},
         audio_remote::RemoteAudioProvider,
     },
-    audio::*,
-    comms::Sockets,
     lua::imported,
 };
 use ratatui::prelude::*;

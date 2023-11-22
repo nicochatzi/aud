@@ -1,5 +1,5 @@
 use crate::ui::widgets;
-use aud::apps::derlink::App;
+use aud::controllers::ableton_link::AbletonLink;
 use ratatui::{
     prelude::*,
     widgets::{Block, Borders, Gauge, Paragraph},
@@ -22,7 +22,7 @@ pub struct Ui {
 }
 
 impl Ui {
-    pub fn render(&mut self, f: &mut Frame, app: &mut App) {
+    pub fn render(&mut self, f: &mut Frame, app: &mut AbletonLink) {
         let sections = Layout::default()
             .direction(Direction::Horizontal)
             .margin(1)

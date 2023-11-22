@@ -1,9 +1,12 @@
-mod app;
-pub use app::*;
+pub mod ableton_link;
+pub mod audio;
+pub mod audio_midi;
+pub mod audio_remote;
+pub mod midi;
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use super::audio_midi::{AppEvent, AudioMidiController};
     use crate::midi::{MidiData, MidiReceiving};
     use std::time::Duration;
 
@@ -44,17 +47,17 @@ mod test {
 
     #[test]
     fn is_off_by_default() {
-        let mut app = App::new(Box::<MockMidiHost>::default());
-        assert!(!app.running());
+        let mut app = AudioMidiController::with_midi(Box::<MockMidiHost>::default(), "");
+        assert!(!app.midi().is_running());
         assert!(app.take_alert().is_none());
 
-        app.set_running(true);
-        assert!(app.running());
+        app.midi_mut().set_running(true);
+        assert!(app.midi().is_running());
     }
 
     #[test]
     fn can_load_a_script_and_receive_an_alert() {
-        let mut app = App::new(Box::<MockMidiHost>::default());
+        let mut app = AudioMidiController::with_midi(Box::<MockMidiHost>::default(), "");
 
         let script = crate::test::fixture("alert_on_load.lua");
         app.load_script_sync(script.clone(), TIMEOUT).unwrap();
@@ -66,7 +69,7 @@ mod test {
 
     #[test]
     fn can_call_into_scripts_through_hooks() {
-        let mut app = App::new(Box::<MockMidiHost>::default());
+        let mut app = AudioMidiController::with_midi(Box::<MockMidiHost>::default(), "");
 
         let script = crate::test::fixture("alert_in_hooks.lua");
         app.load_script_sync(script.clone(), TIMEOUT).unwrap();
@@ -86,15 +89,15 @@ mod test {
             format!("on_discover:{}", devices)
         );
 
-        app.connect_to_midi_input_by_index(0).unwrap();
-        assert_eq!(app.selected_port().unwrap(), MIDI_DEVICES[0]);
+        app.midi_mut().connect_to_input_by_index(0).unwrap();
+        assert_eq!(app.midi().selected_port_name().unwrap(), MIDI_DEVICES[0]);
 
         assert_eq!(
             app.wait_for_alert(TIMEOUT).unwrap().unwrap(),
             format!("on_connect:{}", MIDI_DEVICES[0])
         );
 
-        app.process_midi_messages();
+        app.midi_mut().update();
 
         let bytes = MIDI_BYTES
             .iter()
@@ -110,7 +113,7 @@ mod test {
 
     #[test]
     fn does_not_panic_when_an_invalid_script_crashes_the_engine() {
-        let mut app = App::new(Box::<MockMidiHost>::default());
+        let mut app = AudioMidiController::with_midi(Box::<MockMidiHost>::default(), "");
 
         let invalid_script = crate::test::fixture("invalid.lua");
         app.load_script_sync(invalid_script, TIMEOUT).unwrap_err();

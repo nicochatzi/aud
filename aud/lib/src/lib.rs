@@ -1,6 +1,6 @@
-pub mod apps;
 pub mod audio;
 pub mod comms;
+pub mod controllers;
 pub mod dsp;
 pub mod files;
 pub mod lua;

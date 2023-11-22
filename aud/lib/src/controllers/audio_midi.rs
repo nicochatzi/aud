@@ -88,7 +88,7 @@ impl AudioMidiController {
     pub fn load_script(&mut self, script_path: impl AsRef<Path>) -> anyhow::Result<AppEvent> {
         self.script.borrow_mut().load(script_path)?;
 
-        if self.midi.selected_port().is_some() {
+        if self.midi.selected_port_name().is_some() {
             self.send_midi_port_discovery()?;
             self.midi.reconnect()?;
         }
@@ -144,10 +144,8 @@ impl AudioMidiController {
                     Err(_) => break,
                 }
             };
-
             self.process_script_event(event)?;
         }
-
         Ok(AppEvent::Continue)
     }
 
@@ -155,31 +153,22 @@ impl AudioMidiController {
         match event {
             ScriptEvent::Loaded => return Ok(AppEvent::ScriptLoaded),
             ScriptEvent::Log(request) => self.handle_lua_log_request(request),
-            ScriptEvent::Midi(midi) => self.midi.push_message(midi),
+            ScriptEvent::Midi(message) => self.midi.push_message(message),
             ScriptEvent::Connect(request) => self.handle_lua_connect_request(request)?,
-            ScriptEvent::Control(request) => {
-                if self.handle_lua_control_request(request) == AppEvent::Stopping {
-                    return Ok(AppEvent::Stopping);
-                }
-            }
+            ScriptEvent::Control(request) => return Ok(self.handle_lua_control_request(request)),
         }
-
         Ok(AppEvent::Continue)
     }
 
     /// Process all the available file watcher events without blocking.
     pub fn process_file_events(&mut self) -> anyhow::Result<AppEvent> {
-        let (was_modified, script_path) = {
-            let script = self.script.borrow();
-            (script.was_script_modified()?, script.path().cloned())
-        };
+        if !self.script.borrow().was_script_modified()? {
+            return Ok(AppEvent::Continue);
+        }
 
-        if was_modified {
-            if let Some(path) = script_path {
-                self.load_script(path)
-            } else {
-                Ok(AppEvent::Continue)
-            }
+        let script_path = self.script.borrow().path().cloned();
+        if let Some(path) = script_path {
+            self.load_script(path)
         } else {
             Ok(AppEvent::Continue)
         }
@@ -243,14 +232,10 @@ impl AudioMidiController {
     }
 
     fn send_midi_port_discovery(&mut self) -> anyhow::Result<()> {
-        if let Err(e) = self
-            .script
-            .borrow()
-            .try_send(HostEvent::Discover(self.midi.port_names().to_vec()))
-        {
+        let ports = self.midi.port_names().to_vec();
+        if let Err(e) = self.script.borrow().try_send(HostEvent::Discover(ports)) {
             log::error!("failed to send discovery event : {e}");
         }
-
         Ok(())
     }
 
