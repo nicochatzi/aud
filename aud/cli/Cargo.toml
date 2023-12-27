@@ -11,9 +11,8 @@ path = "src/main.rs"
 workspace = true
 
 [dependencies]
-aud = { package = "aud_lib", path = "../lib" }
+aud = { package = "audlib", path = "../lib" }
 anyhow = { workspace = true }
-thiserror = { workspace = true }
 crossbeam = { workspace = true }
 log = { workspace = true }
 fern = { workspace = true }

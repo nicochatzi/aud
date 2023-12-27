@@ -35,7 +35,7 @@ Scriptable MIDI Monitor.
 Scriptable Audio Oscilloscope.
 
 By default `auscope` lists the host machine's audio devices.
-`aud_lib` can integrated in other applications (Rust or through C-FFI)
+`audlib` can integrated in other applications (Rust or through C-FFI)
 to generate sources and send them over UDP to an `auscope` instance.
 
 ![auscope](./vhs/out/auscope.gif)

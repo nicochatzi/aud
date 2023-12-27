@@ -76,7 +76,7 @@ impl AudioBuffer {
     /// # Examples
     ///
     /// ```
-    /// use aud_lib::audio::AudioBuffer;
+    /// use audlib::audio::AudioBuffer;
     ///
     /// let buffer = AudioBuffer::with_frames(10, 2);
     /// assert_eq!(buffer.data.len(), 20);  // 10 frames * 2 channels
@@ -102,7 +102,7 @@ impl AudioBuffer {
     /// # Examples
     ///
     /// ```
-    /// use aud_lib::audio::AudioBuffer;
+    /// use audlib::audio::AudioBuffer;
     ///
     /// let buffer = AudioBuffer::with_length(20, 2);
     /// assert_eq!(buffer.data.len(), 20);  // Total number of samples

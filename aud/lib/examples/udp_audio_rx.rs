@@ -1,5 +1,5 @@
-use aud_lib::audio::*;
-use aud_lib::comms::*;
+use audlib::audio::*;
+use audlib::comms::*;
 use std::net::UdpSocket;
 use std::sync::Arc;
 use std::sync::Mutex;

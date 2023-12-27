@@ -1,4 +1,4 @@
-use aud_lib::comms::*;
+use audlib::comms::*;
 use criterion::{black_box, criterion_group, criterion_main, Criterion}; // replace `your_crate` with your actual crate name
 use rand::Rng;
 

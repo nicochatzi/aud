@@ -1,4 +1,4 @@
-use aud_lib::audio::*;
+use audlib::audio::*;
 use criterion::{criterion_group, criterion_main, Criterion};
 use rand::random;
 use std::iter::repeat_with;
