@@ -32,7 +32,7 @@ crc32fast = "1.3.2"
 [dev-dependencies]
 fern = { workspace = true }
 test-log = "0.2.12"
-env_logger = "0.10.0"
+env_logger = "0.11.0"
 criterion = "0.5.1"
 rand = "0.8.5"
 
